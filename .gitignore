@@ -1,27 +1,70 @@
 # Binaries
-fileconverter
-fileconverter.exe
+# ---------------------
+/bin/
+/dist/
+/fileconverter
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary
 *.test
 
-# Output
-*.out
-
 # Go workspace
+# ---------------------
 go.work
+go.work.sum
 
-# IDE
+# Dependency directories
+# ---------------------
+# Vendor directory is usually ignored unless you're checking in your dependencies
+# with 'go mod vendor'. If you want to commit vendor, remove the slash below.
+vendor/
+
+# Build artifacts
+# ---------------------
+*.o
+*.a
+*.out
+coverage.out
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+
+# IDEs and Editors
+# ---------------------
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+*.sublime-workspace
+*.sublime-project
 
-# OS
+# OS specific
+# ---------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
+
+# Application specific (Logs, Temp files, etc.)
+# ---------------------
+*.log
+*.tmp
+*.tmp.html
+libreoffice-profile-*/
+
+# Environment variables
+# ---------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+

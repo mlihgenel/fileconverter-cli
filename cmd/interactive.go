@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,54 +13,109 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/melihgenel/fileconverter/internal/converter"
-	"github.com/melihgenel/fileconverter/internal/ui"
 )
 
 // ========================================
-// Stiller
+// Renk Paleti ve Stiller
 // ========================================
 
 var (
-	titleStyle = lipgloss.NewStyle().
+	// Ana renk paleti
+	primaryColor   = lipgloss.Color("#7C3AED") // Mor
+	secondaryColor = lipgloss.Color("#06B6D4") // Cyan
+	accentColor    = lipgloss.Color("#10B981") // Yeşil
+	warningColor   = lipgloss.Color("#F59E0B") // Sarı
+	dangerColor    = lipgloss.Color("#EF4444") // Kırmızı
+	textColor      = lipgloss.Color("#E2E8F0") // Açık gri
+	dimTextColor   = lipgloss.Color("#64748B") // Koyu gri
+	bgColor        = lipgloss.Color("#0F172A") // Koyu arka plan
+
+	// Gradient renkleri (banner için)
+	gradientColors = []lipgloss.Color{
+		"#818CF8", "#A78BFA", "#C084FC", "#E879F9", "#F472B6",
+	}
+
+	// Stiller
+	bannerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#00D4FF")).
 			MarginBottom(1)
 
 	menuTitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 2)
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(primaryColor).
+			Padding(0, 2).
+			MarginBottom(1)
 
-	selectedStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#00D4FF")).
-			PaddingLeft(2)
+	selectedItemStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(secondaryColor).
+				PaddingLeft(2)
 
-	normalStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#DDDDDD")).
+	normalItemStyle = lipgloss.NewStyle().
+			Foreground(textColor).
 			PaddingLeft(4)
 
+	descStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor).
+			Italic(true)
+
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666"))
+			Foreground(dimTextColor)
 
 	successStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#04B575"))
+			Foreground(accentColor)
 
 	errorStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FF4444"))
+			Foreground(dangerColor)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00AAFF"))
+			Foreground(secondaryColor)
 
-	boxStyle = lipgloss.NewStyle().
+	pathStyle = lipgloss.NewStyle().
+			Foreground(warningColor).
+			Bold(true)
+
+	resultBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Padding(1, 2).
+			BorderForeground(primaryColor).
+			Padding(1, 3).
 			MarginTop(1)
+
+	breadcrumbStyle = lipgloss.NewStyle().
+			Foreground(dimTextColor).
+			PaddingLeft(2)
+
+	selectedFileStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(accentColor).
+				PaddingLeft(2)
+
+	folderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(warningColor)
+
+	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 )
+
+// ========================================
+// Kategori tanımları
+// ========================================
+
+type formatCategory struct {
+	Name    string
+	Icon    string
+	Desc    string
+	Formats []string
+}
+
+var categories = []formatCategory{
+	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT — çapraz dönüşüm", Formats: []string{"md", "html", "pdf", "docx", "txt"}},
+	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma"}},
+	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif"}},
+}
 
 // ========================================
 // State Machine
@@ -69,16 +125,19 @@ type screenState int
 
 const (
 	stateMainMenu screenState = iota
+	stateSelectCategory
 	stateSelectSourceFormat
 	stateSelectTargetFormat
-	stateSelectFile
+	stateFileBrowser
 	stateConverting
 	stateConvertDone
+	stateBatchSelectCategory
 	stateBatchSelectSourceFormat
 	stateBatchSelectTargetFormat
 	stateBatchConverting
 	stateBatchDone
 	stateFormats
+	stateDependencies
 )
 
 // ========================================
@@ -86,55 +145,59 @@ const (
 // ========================================
 
 type interactiveModel struct {
-	state       screenState
-	cursor      int
+	state  screenState
+	cursor int
+
+	// Menü
 	choices     []string
 	choiceIcons []string
+	choiceDescs []string
+
+	// Kategori
+	selectedCategory int
 
 	// Dönüşüm bilgileri
 	sourceFormat string
 	targetFormat string
 	selectedFile string
-	files        []string
+
+	// Dosya tarayıcı
+	browserDir    string
+	browserItems  []browserEntry
+	defaultOutput string
 
 	// Sonuçlar
 	resultMsg string
 	resultErr bool
 	duration  time.Duration
 
-	// Batch sonuçları
+	// Batch
 	batchTotal     int
 	batchSucceeded int
 	batchFailed    int
 
-	// Format tablosu
-	formatLines []string
+	// Spinner
+	spinnerIdx  int
+	spinnerTick int
 
-	// Pencere boyutu
+	// Pencere
 	width  int
 	height int
 
 	// Çıkış
 	quitting bool
+
+	// Sistem durumu
+	dependencies []converter.ExternalTool
 }
 
-func newInteractiveModel() interactiveModel {
-	return interactiveModel{
-		state:  stateMainMenu,
-		cursor: 0,
-		choices: []string{
-			"Dosya Dönüştür",
-			"Toplu Dönüştür (Batch)",
-			"Desteklenen Formatlar",
-			"Çıkış",
-		},
-		choiceIcons: []string{"📄", "📦", "📋", "👋"},
-		width:       80,
-		height:      24,
-	}
+type browserEntry struct {
+	name  string
+	path  string
+	isDir bool
 }
 
-// dönüşüm mesajları
+// Mesajlar
 type convertDoneMsg struct {
 	err      error
 	duration time.Duration
@@ -148,12 +211,50 @@ type batchDoneMsg struct {
 	duration  time.Duration
 }
 
+type tickMsg time.Time
+
+func newInteractiveModel(deps []converter.ExternalTool) interactiveModel {
+	homeDir := getHomeDir()
+	desktop := filepath.Join(homeDir, "Desktop")
+
+	return interactiveModel{
+		state:  stateMainMenu,
+		cursor: 0,
+		choices: []string{
+			"Dosya Dönüştür",
+			"Toplu Dönüştür (Batch)",
+			"Desteklenen Formatlar",
+			"Sistem Kontrolü",
+			"Çıkış",
+		},
+		choiceIcons: []string{"🔄", "📦", "📋", "🔧", "👋"},
+		choiceDescs: []string{
+			"Tek bir dosyayı başka formata dönüştür",
+			"Dizindeki tüm dosyaları toplu dönüştür",
+			"Desteklenen format ve dönüşüm yollarını gör",
+			"Harici araçların (LibreOffice, Pandoc) durumu",
+			"Uygulamadan çık",
+		},
+		browserDir:    desktop,
+		defaultOutput: desktop,
+		width:         80,
+		height:        24,
+		dependencies:  deps,
+	}
+}
+
 // ========================================
 // bubbletea Interface
 // ========================================
 
 func (m interactiveModel) Init() tea.Cmd {
-	return nil
+	return tickCmd()
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -162,6 +263,13 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case tickMsg:
+		if m.state == stateConverting || m.state == stateBatchConverting {
+			m.spinnerTick++
+			m.spinnerIdx = m.spinnerTick % len(spinnerFrames)
+		}
+		return m, tickCmd()
 
 	case convertDoneMsg:
 		m.state = stateConvertDone
@@ -185,12 +293,15 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+
+		case "q":
 			if m.state == stateMainMenu {
 				m.quitting = true
 				return m, tea.Quit
 			}
-			// Herhangi bir ekrandan ana menüye dön
 			return m.goToMainMenu(), nil
 
 		case "esc":
@@ -202,12 +313,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down", "j":
-			max := len(m.choices) - 1
-			if m.state == stateSelectFile {
-				max = len(m.files) - 1
-			} else if m.state == stateFormats {
-				return m, nil // Format ekranında navigasyon yok
-			}
+			max := m.getMaxCursor()
 			if m.cursor < max {
 				m.cursor++
 			}
@@ -220,34 +326,49 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m interactiveModel) getMaxCursor() int {
+	switch m.state {
+	case stateFileBrowser:
+		return len(m.browserItems) - 1
+	case stateFormats:
+		return 0
+	default:
+		return len(m.choices) - 1
+	}
+}
+
 func (m interactiveModel) View() string {
 	if m.quitting {
-		return "\n  👋 Görüşürüz!\n\n"
+		return gradientText("  👋 Görüşürüz!", gradientColors) + "\n\n"
 	}
 
 	switch m.state {
 	case stateMainMenu:
 		return m.viewMainMenu()
+	case stateSelectCategory:
+		return m.viewSelectCategory("Dosya türü seçin:")
 	case stateSelectSourceFormat:
-		return m.viewSelectFormat("Kaynak format seçin:", false)
+		return m.viewSelectFormat("Kaynak format seçin:")
 	case stateSelectTargetFormat:
-		return m.viewSelectFormat("Hedef format seçin:", true)
-	case stateSelectFile:
-		return m.viewSelectFile()
-	case stateConverting:
+		return m.viewSelectFormat("Hedef format seçin:")
+	case stateFileBrowser:
+		return m.viewFileBrowser()
+	case stateConverting, stateBatchConverting:
 		return m.viewConverting()
 	case stateConvertDone:
 		return m.viewConvertDone()
+	case stateBatchSelectCategory:
+		return m.viewSelectCategory("Batch — Dosya türü seçin:")
 	case stateBatchSelectSourceFormat:
-		return m.viewSelectFormat("Batch — Kaynak format seçin:", false)
+		return m.viewSelectFormat("Batch — Kaynak format seçin:")
 	case stateBatchSelectTargetFormat:
-		return m.viewSelectFormat("Batch — Hedef format seçin:", true)
-	case stateBatchConverting:
-		return m.viewConverting()
+		return m.viewSelectFormat("Batch — Hedef format seçin:")
 	case stateBatchDone:
 		return m.viewBatchDone()
 	case stateFormats:
 		return m.viewFormats()
+	case stateDependencies:
+		return m.viewDependencies()
 	default:
 		return ""
 	}
@@ -260,39 +381,111 @@ func (m interactiveModel) View() string {
 func (m interactiveModel) viewMainMenu() string {
 	var b strings.Builder
 
-	banner := titleStyle.Render(`
-  ╔═══════════════════════════════════════════════╗
-  ║        FileConverter CLI  v1.0.0              ║
-  ║   Yerel dosya format dönüştürücü              ║
-  ╚═══════════════════════════════════════════════╝`)
+	// Gradient banner
+	banner := []string{
+		"  ╔════════════════════════════════════════════════════╗",
+		"  ║                                                    ║",
+		"  ║     		███████╗██╗██╗     ███████╗             ║",
+		"  ║     		██╔════╝██║██║     ██╔════╝             ║",
+		"  ║     		█████╗  ██║██║     █████╗               ║",
+		"  ║     		██╔══╝  ██║██║     ██╔══╝               ║",
+		"  ║     		██║     ██║███████╗███████╗             ║",
+		"  ║     		╚═╝     ╚═╝╚══════╝╚══════╝             ║",
+		"  ║        F I L E   C O N V E R T E R   v1.0.0        ║",
+		"  ║                                                    ║",
+		"  ║     Dosyalarınızı yerel ve güvenli dönüştürün      ║",
+		"  ╚════════════════════════════════════════════════════╝",
+	}
 
-	b.WriteString(banner)
-	b.WriteString("\n\n")
-	b.WriteString(menuTitleStyle.Render(" Ana Menü "))
-	b.WriteString("\n\n")
-
-	for i, choice := range m.choices {
-		icon := m.choiceIcons[i]
-		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(fmt.Sprintf("▸ %s  %s", icon, choice)))
-		} else {
-			b.WriteString(normalStyle.Render(fmt.Sprintf("  %s  %s", icon, choice)))
-		}
+	for i, line := range banner {
+		colorIdx := i % len(gradientColors)
+		style := lipgloss.NewStyle().Bold(true).Foreground(gradientColors[colorIdx])
+		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑/↓: Gezin  •  Enter: Seç  •  q: Çıkış"))
+	b.WriteString(menuTitleStyle.Render(" ◆ Ana Menü "))
+	b.WriteString("\n\n")
+
+	for i, choice := range m.choices {
+		icon := m.choiceIcons[i]
+		desc := ""
+		if i < len(m.choiceDescs) {
+			desc = m.choiceDescs[i]
+		}
+
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s  %s", icon, choice)))
+			b.WriteString("\n")
+			if desc != "" {
+				b.WriteString(lipgloss.NewStyle().PaddingLeft(7).Foreground(dimTextColor).Italic(true).Render(desc))
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s  %s", icon, choice)))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  q Çıkış"))
 	b.WriteString("\n")
 
 	return b.String()
 }
 
-func (m interactiveModel) viewSelectFormat(title string, isTarget bool) string {
+func (m interactiveModel) viewSelectCategory(title string) string {
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" %s ", title)))
+	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" ◆ %s ", title)))
+	b.WriteString("\n\n")
+
+	for i, cat := range categories {
+		if i == m.cursor {
+			// Seçili kategori — kart stili
+			card := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(secondaryColor).
+				Padding(0, 2).
+				MarginLeft(2).
+				Width(50)
+
+			content := fmt.Sprintf("%s  %s\n%s",
+				cat.Icon,
+				lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(cat.Name),
+				descStyle.Render(cat.Desc))
+
+			b.WriteString(card.Render(content))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s  %s", cat.Icon, cat.Name)))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Geri"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func (m interactiveModel) viewSelectFormat(title string) string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+
+	// Breadcrumb
+	cat := categories[m.selectedCategory]
+	crumb := fmt.Sprintf("  %s %s", cat.Icon, cat.Name)
+	if m.sourceFormat != "" {
+		crumb += fmt.Sprintf(" › %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)))
+	}
+	b.WriteString(breadcrumbStyle.Render(crumb))
+	b.WriteString("\n\n")
+
+	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" ◆ %s ", title)))
 	b.WriteString("\n\n")
 
 	for i, choice := range m.choices {
@@ -301,68 +494,108 @@ func (m interactiveModel) viewSelectFormat(title string, isTarget bool) string {
 			icon = m.choiceIcons[i]
 		}
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(fmt.Sprintf("▸ %s  %s", icon, choice)))
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s  %s", icon, choice)))
 		} else {
-			b.WriteString(normalStyle.Render(fmt.Sprintf("  %s  %s", icon, choice)))
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s  %s", icon, choice)))
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	if m.sourceFormat != "" {
-		b.WriteString(infoStyle.Render(fmt.Sprintf("  Kaynak format: %s", strings.ToUpper(m.sourceFormat))))
-		b.WriteString("\n")
-	}
-	b.WriteString(dimStyle.Render("  ↑/↓: Gezin  •  Enter: Seç  •  Esc: Geri"))
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Geri"))
 	b.WriteString("\n")
 
 	return b.String()
 }
 
-func (m interactiveModel) viewSelectFile() string {
+func (m interactiveModel) viewFileBrowser() string {
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" %s → %s — Dosya seçin: ",
-		strings.ToUpper(m.sourceFormat), strings.ToUpper(m.targetFormat))))
+
+	// Breadcrumb
+	cat := categories[m.selectedCategory]
+	crumb := fmt.Sprintf("  %s %s › %s › %s",
+		cat.Icon, cat.Name,
+		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
+		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
+	b.WriteString(breadcrumbStyle.Render(crumb))
 	b.WriteString("\n\n")
 
-	if len(m.files) == 0 {
-		b.WriteString(errorStyle.Render("  Bu dizinde ." + m.sourceFormat + " dosyası bulunamadı!"))
+	b.WriteString(menuTitleStyle.Render(" ◆ Dosya Seçin "))
+	b.WriteString("\n")
+
+	// Mevcut dizin
+	shortDir := shortenPath(m.browserDir)
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 %s", shortDir)))
+	b.WriteString("\n\n")
+
+	if len(m.browserItems) == 0 {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  Bu dizinde .%s dosyası veya klasör bulunamadı!", m.sourceFormat)))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("  Esc: Geri"))
+		b.WriteString(dimStyle.Render("  Esc Geri"))
 		b.WriteString("\n")
 		return b.String()
 	}
 
-	// Sayfala — her sayfada en fazla 15 dosya göster
+	// Sayfala
 	pageSize := 15
 	startIdx := 0
 	if m.cursor >= pageSize {
 		startIdx = m.cursor - pageSize + 1
 	}
 	endIdx := startIdx + pageSize
-	if endIdx > len(m.files) {
-		endIdx = len(m.files)
+	if endIdx > len(m.browserItems) {
+		endIdx = len(m.browserItems)
 	}
 
 	for i := startIdx; i < endIdx; i++ {
-		displayName := filepath.Base(m.files[i])
-		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(fmt.Sprintf("▸ 📄 %s", displayName)))
+		item := m.browserItems[i]
+
+		if item.isDir {
+			// Klasörler
+			if i == m.cursor {
+				b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ 📁 %s/", item.name)))
+			} else {
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  📁 %s/", folderStyle.Render(item.name))))
+			}
 		} else {
-			b.WriteString(normalStyle.Render(fmt.Sprintf("  📄 %s", displayName)))
+			// Dosyalar
+			if i == m.cursor {
+				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ %s %s", cat.Icon, item.name)))
+			} else {
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s %s", cat.Icon, item.name)))
+			}
 		}
 		b.WriteString("\n")
 	}
 
+	// Bilgi
+	fileCount := 0
+	dirCount := 0
+	for _, item := range m.browserItems {
+		if item.isDir {
+			dirCount++
+		} else {
+			fileCount++
+		}
+	}
+
 	b.WriteString("\n")
-	b.WriteString(infoStyle.Render(fmt.Sprintf("  %d dosya bulundu", len(m.files))))
-	if len(m.files) > pageSize {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  (Gösterilen: %d-%d)", startIdx+1, endIdx)))
+	info := fmt.Sprintf("  %d dosya", fileCount)
+	if dirCount > 0 {
+		info += fmt.Sprintf(", %d klasör", dirCount)
+	}
+	b.WriteString(infoStyle.Render(info))
+	if len(m.browserItems) > pageSize {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  (%d-%d arası)", startIdx+1, endIdx)))
 	}
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑/↓: Gezin  •  Enter: Dönüştür  •  Esc: Geri"))
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç/Gir  •  Esc Geri"))
+	b.WriteString("\n")
+
+	// Çıktı bilgisi
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Çıktı: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
 
 	return b.String()
@@ -370,9 +603,24 @@ func (m interactiveModel) viewSelectFile() string {
 
 func (m interactiveModel) viewConverting() string {
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(infoStyle.Render("  🔄 Dönüştürülüyor..."))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
+
+	frame := spinnerFrames[m.spinnerIdx]
+	spinnerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+
+	b.WriteString(spinnerStyle.Render(fmt.Sprintf("  %s Dönüştürülüyor", frame)))
+
+	dots := strings.Repeat(".", (m.spinnerTick/3)%4)
+	b.WriteString(dimStyle.Render(dots))
+	b.WriteString("\n\n")
+
+	if m.selectedFile != "" {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  %s → %s",
+			filepath.Base(m.selectedFile),
+			strings.ToUpper(m.targetFormat))))
+		b.WriteString("\n")
+	}
+
 	return b.String()
 }
 
@@ -381,19 +629,18 @@ func (m interactiveModel) viewConvertDone() string {
 
 	b.WriteString("\n")
 	if m.resultErr {
-		b.WriteString(boxStyle.Render(
-			errorStyle.Render("❌ Dönüşüm Başarısız\n\n") +
-				fmt.Sprintf("  Hata: %s", m.resultMsg),
-		))
+		content := errorStyle.Render("  ❌ Dönüşüm Başarısız") + "\n\n"
+		content += fmt.Sprintf("  Hata: %s", m.resultMsg)
+		b.WriteString(resultBoxStyle.Render(content))
 	} else {
-		b.WriteString(boxStyle.Render(
-			successStyle.Render("✅ Dönüşüm Tamamlandı!\n\n") +
-				fmt.Sprintf("  Çıktı: %s\n  Süre:  %s", m.resultMsg, formatDuration(m.duration)),
-		))
+		content := successStyle.Render("  ✅ Dönüşüm Tamamlandı!") + "\n\n"
+		content += fmt.Sprintf("  📄 Çıktı: %s\n", shortenPath(m.resultMsg))
+		content += fmt.Sprintf("  ⏱️  Süre:  %s", formatDuration(m.duration))
+		b.WriteString(resultBoxStyle.Render(content))
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("  Enter/Esc: Ana Menüye Dön"))
+	b.WriteString(dimStyle.Render("  Enter Ana Menü  •  Esc Geri"))
 	b.WriteString("\n")
 
 	return b.String()
@@ -404,7 +651,7 @@ func (m interactiveModel) viewBatchDone() string {
 
 	b.WriteString("\n")
 
-	content := successStyle.Render("🎉 Toplu Dönüşüm Tamamlandı!\n\n")
+	content := successStyle.Render("  🎉 Toplu Dönüşüm Tamamlandı!") + "\n\n"
 	content += fmt.Sprintf("  Toplam:    %d dosya\n", m.batchTotal)
 	content += successStyle.Render(fmt.Sprintf("  Başarılı:  %d dosya\n", m.batchSucceeded))
 	if m.batchFailed > 0 {
@@ -412,9 +659,9 @@ func (m interactiveModel) viewBatchDone() string {
 	}
 	content += fmt.Sprintf("  Süre:      %s", formatDuration(m.duration))
 
-	b.WriteString(boxStyle.Render(content))
+	b.WriteString(resultBoxStyle.Render(content))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("  Enter/Esc: Ana Menüye Dön"))
+	b.WriteString(dimStyle.Render("  Enter Ana Menü"))
 	b.WriteString("\n")
 
 	return b.String()
@@ -424,56 +671,47 @@ func (m interactiveModel) viewFormats() string {
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(" Desteklenen Dönüşümler "))
+	b.WriteString(menuTitleStyle.Render(" ◆ Desteklenen Dönüşümler "))
 	b.WriteString("\n\n")
 
 	pairs := converter.GetAllConversions()
 
-	// Kategorilere ayır
 	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true}
 	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true}
 	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true}
 
 	// Belge formatları
-	b.WriteString(infoStyle.Render("  📄 Belge Formatları"))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  📄 Belge Formatları"))
 	b.WriteString("\n")
 	for _, p := range pairs {
 		if docFormats[p.From] && docFormats[p.To] {
 			b.WriteString(fmt.Sprintf("     %s → %s\n",
-				lipgloss.NewStyle().Bold(true).Render(strings.ToUpper(p.From)),
+				lipgloss.NewStyle().Bold(true).Foreground(textColor).Render(strings.ToUpper(p.From)),
 				successStyle.Render(strings.ToUpper(p.To))))
 		}
 	}
 
-	// Ses formatları
+	// Ses
 	b.WriteString("\n")
-	b.WriteString(infoStyle.Render("  🎵 Ses Formatları"))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  🎵 Ses Formatları"))
 	if !converter.IsFFmpegAvailable() {
-		b.WriteString(errorStyle.Render("  (FFmpeg gerekli!)"))
+		b.WriteString(errorStyle.Render("  ⚠ FFmpeg gerekli"))
 	}
 	b.WriteString("\n")
-	audioList := []string{}
-	for f := range audioFormats {
-		audioList = append(audioList, strings.ToUpper(f))
-	}
-	sort.Strings(audioList)
-	b.WriteString(fmt.Sprintf("     %s (çapraz dönüşüm)\n", strings.Join(audioList, " ↔ ")))
+	audioList := sortedKeys(audioFormats)
+	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(audioList, " ↔ ")+"  (çapraz)")))
 
-	// Görsel formatları
+	// Görsel
 	b.WriteString("\n")
-	b.WriteString(infoStyle.Render("  🖼️  Görsel Formatları"))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  🖼️  Görsel Formatları"))
 	b.WriteString("\n")
-	imgList := []string{}
-	for f := range imgFormats {
-		imgList = append(imgList, strings.ToUpper(f))
-	}
-	sort.Strings(imgList)
-	b.WriteString(fmt.Sprintf("     %s (çapraz dönüşüm)\n", strings.Join(imgList, " ↔ ")))
+	imgList := sortedKeys(imgFormats)
+	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(imgList, " ↔ ")+"  (çapraz)")))
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  Toplam: %d dönüşüm yolu", len(pairs))))
+	b.WriteString(infoStyle.Render(fmt.Sprintf("  Toplam: %d dönüşüm yolu", len(pairs))))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("  Esc: Ana Menüye Dön"))
+	b.WriteString(dimStyle.Render("  Esc Ana Menü"))
 	b.WriteString("\n")
 
 	return b.String()
@@ -487,18 +725,26 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 	switch m.state {
 	case stateMainMenu:
 		switch m.cursor {
-		case 0: // Dosya Dönüştür
-			return m.goToSourceFormatSelect(false), nil
-		case 1: // Toplu Dönüştür
-			return m.goToSourceFormatSelect(true), nil
-		case 2: // Formatlar
+		case 0:
+			return m.goToCategorySelect(false), nil
+		case 1:
+			return m.goToCategorySelect(true), nil
+		case 2:
 			m.state = stateFormats
 			m.cursor = 0
 			return m, nil
-		case 3: // Çıkış
+		case 3:
+			m.state = stateDependencies
+			m.cursor = 0
+			return m, nil
+		case 4:
 			m.quitting = true
 			return m, tea.Quit
 		}
+
+	case stateSelectCategory:
+		m.selectedCategory = m.cursor
+		return m.goToSourceFormatSelect(false), nil
 
 	case stateSelectSourceFormat:
 		m.sourceFormat = converter.NormalizeFormat(m.choices[m.cursor])
@@ -506,14 +752,28 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 
 	case stateSelectTargetFormat:
 		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
-		return m.goToFileSelect(), nil
+		return m.goToFileBrowser(), nil
 
-	case stateSelectFile:
-		if len(m.files) > 0 && m.cursor < len(m.files) {
-			m.selectedFile = m.files[m.cursor]
-			m.state = stateConverting
-			return m, m.doConvert()
+	case stateFileBrowser:
+		if m.cursor < len(m.browserItems) {
+			item := m.browserItems[m.cursor]
+			if item.isDir {
+				// Klasöre gir
+				m.browserDir = item.path
+				m.cursor = 0
+				m.loadBrowserItems()
+				return m, nil
+			} else {
+				// Dosya seç ve dönüştür
+				m.selectedFile = item.path
+				m.state = stateConverting
+				return m, m.doConvert()
+			}
 		}
+
+	case stateBatchSelectCategory:
+		m.selectedCategory = m.cursor
+		return m.goToSourceFormatSelect(true), nil
 
 	case stateBatchSelectSourceFormat:
 		m.sourceFormat = converter.NormalizeFormat(m.choices[m.cursor])
@@ -537,7 +797,8 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.sourceFormat = ""
 	m.targetFormat = ""
 	m.selectedFile = ""
-	m.files = nil
+	m.selectedCategory = 0
+	m.browserItems = nil
 	m.resultMsg = ""
 	m.resultErr = false
 	m.choices = []string{
@@ -546,20 +807,30 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 		"Desteklenen Formatlar",
 		"Çıkış",
 	}
-	m.choiceIcons = []string{"📄", "📦", "📋", "👋"}
+	m.choiceIcons = []string{"🔄", "📦", "📋", "👋"}
+	m.choiceDescs = []string{
+		"Tek bir dosyayı başka formata dönüştür",
+		"Dizindeki tüm dosyaları toplu dönüştür",
+		"Desteklenen format ve dönüşüm yollarını gör",
+		"Uygulamadan çık",
+	}
 	return m
 }
 
 func (m interactiveModel) goBack() interactiveModel {
 	switch m.state {
-	case stateSelectSourceFormat:
+	case stateSelectCategory:
 		return m.goToMainMenu()
+	case stateSelectSourceFormat:
+		return m.goToCategorySelect(false)
 	case stateSelectTargetFormat:
 		return m.goToSourceFormatSelect(false)
-	case stateSelectFile:
+	case stateFileBrowser:
 		return m.goToTargetFormatSelect(false)
-	case stateBatchSelectSourceFormat:
+	case stateBatchSelectCategory:
 		return m.goToMainMenu()
+	case stateBatchSelectSourceFormat:
+		return m.goToCategorySelect(true)
 	case stateBatchSelectTargetFormat:
 		return m.goToSourceFormatSelect(true)
 	case stateConvertDone, stateBatchDone, stateFormats:
@@ -569,13 +840,53 @@ func (m interactiveModel) goBack() interactiveModel {
 	}
 }
 
-func (m interactiveModel) goToSourceFormatSelect(isBatch bool) interactiveModel {
-	allFormats := getUniqueSourceFormats()
+func (m interactiveModel) goToCategorySelect(isBatch bool) interactiveModel {
+	m.cursor = 0
+	m.choices = make([]string, len(categories))
+	m.choiceIcons = make([]string, len(categories))
+	m.choiceDescs = make([]string, len(categories))
+	for i, cat := range categories {
+		m.choices[i] = cat.Name
+		m.choiceIcons[i] = cat.Icon
+		m.choiceDescs[i] = cat.Desc
+	}
 
-	m.choices = allFormats
-	m.choiceIcons = make([]string, len(allFormats))
-	for i, f := range allFormats {
-		m.choiceIcons[i] = ui.PrintFormatCategory(converter.NormalizeFormat(f))
+	if isBatch {
+		m.state = stateBatchSelectCategory
+	} else {
+		m.state = stateSelectCategory
+	}
+	return m
+}
+
+func (m interactiveModel) goToSourceFormatSelect(isBatch bool) interactiveModel {
+	cat := categories[m.selectedCategory]
+
+	allPairs := converter.GetAllConversions()
+	catFormatSet := make(map[string]bool)
+	for _, f := range cat.Formats {
+		catFormatSet[f] = true
+	}
+
+	sourceSet := make(map[string]bool)
+	for _, p := range allPairs {
+		if catFormatSet[p.From] {
+			sourceSet[p.From] = true
+		}
+	}
+
+	var sourceFormats []string
+	for f := range sourceSet {
+		sourceFormats = append(sourceFormats, f)
+	}
+	sort.Strings(sourceFormats)
+
+	m.choices = make([]string, len(sourceFormats))
+	m.choiceIcons = make([]string, len(sourceFormats))
+	m.choiceDescs = nil
+	for i, f := range sourceFormats {
+		m.choices[i] = strings.ToUpper(f)
+		m.choiceIcons[i] = cat.Icon
 	}
 	m.cursor = 0
 
@@ -584,18 +895,19 @@ func (m interactiveModel) goToSourceFormatSelect(isBatch bool) interactiveModel 
 	} else {
 		m.state = stateSelectSourceFormat
 	}
-
 	return m
 }
 
 func (m interactiveModel) goToTargetFormatSelect(isBatch bool) interactiveModel {
 	pairs := converter.GetConversionsFrom(m.sourceFormat)
+	cat := categories[m.selectedCategory]
 
 	m.choices = make([]string, len(pairs))
 	m.choiceIcons = make([]string, len(pairs))
+	m.choiceDescs = nil
 	for i, p := range pairs {
 		m.choices[i] = strings.ToUpper(p.To)
-		m.choiceIcons[i] = ui.PrintFormatCategory(p.To)
+		m.choiceIcons[i] = cat.Icon
 	}
 	m.cursor = 0
 
@@ -604,30 +916,65 @@ func (m interactiveModel) goToTargetFormatSelect(isBatch bool) interactiveModel 
 	} else {
 		m.state = stateSelectTargetFormat
 	}
-
 	return m
 }
 
-func (m interactiveModel) goToFileSelect() interactiveModel {
-	m.state = stateSelectFile
+func (m *interactiveModel) goToFileBrowser() interactiveModel {
+	m.state = stateFileBrowser
 	m.cursor = 0
+	m.loadBrowserItems()
+	return *m
+}
 
-	// Mevcut dizindeki dosyaları tara
-	cwd, _ := os.Getwd()
+func (m *interactiveModel) loadBrowserItems() {
+	m.browserItems = nil
+
+	entries, err := os.ReadDir(m.browserDir)
+	if err != nil {
+		return
+	}
+
 	ext := "." + m.sourceFormat
-	m.files = []string{}
 
-	entries, err := os.ReadDir(cwd)
-	if err == nil {
-		for _, e := range entries {
-			if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ext {
-				m.files = append(m.files, filepath.Join(cwd, e.Name()))
-			}
+	// Üst dizin (.. )
+	parent := filepath.Dir(m.browserDir)
+	if parent != m.browserDir {
+		m.browserItems = append(m.browserItems, browserEntry{
+			name:  ".. (üst dizin)",
+			path:  parent,
+			isDir: true,
+		})
+	}
+
+	// Klasörler
+	var dirs []browserEntry
+	var files []browserEntry
+
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue // Gizli dosyaları atla
+		}
+
+		fullPath := filepath.Join(m.browserDir, e.Name())
+
+		if e.IsDir() {
+			dirs = append(dirs, browserEntry{
+				name:  e.Name(),
+				path:  fullPath,
+				isDir: true,
+			})
+		} else if strings.ToLower(filepath.Ext(e.Name())) == ext {
+			files = append(files, browserEntry{
+				name:  e.Name(),
+				path:  fullPath,
+				isDir: false,
+			})
 		}
 	}
 
-	sort.Strings(m.files)
-	return m
+	// Önce klasörler, sonra dosyalar
+	m.browserItems = append(m.browserItems, dirs...)
+	m.browserItems = append(m.browserItems, files...)
 }
 
 func (m interactiveModel) doConvert() tea.Cmd {
@@ -639,8 +986,12 @@ func (m interactiveModel) doConvert() tea.Cmd {
 			return convertDoneMsg{err: err, duration: time.Since(start)}
 		}
 
-		outputPath := converter.BuildOutputPath(m.selectedFile, outputDir, m.targetFormat, "")
+		// Çıktıyı varsayılan olarak Desktop'a kaydet
+		outputPath := converter.BuildOutputPath(m.selectedFile, m.defaultOutput, m.targetFormat, "")
 		opts := converter.Options{Quality: 0, Verbose: false}
+
+		// Çıktı dizininin var olduğundan emin ol
+		os.MkdirAll(filepath.Dir(outputPath), 0755)
 
 		err = conv.Convert(m.selectedFile, outputPath, opts)
 		return convertDoneMsg{
@@ -656,7 +1007,6 @@ func (m interactiveModel) doBatchConvert() tea.Cmd {
 		start := time.Now()
 		cwd, _ := os.Getwd()
 
-		// Dosyaları topla
 		ext := "." + m.sourceFormat
 		var files []string
 		entries, _ := os.ReadDir(cwd)
@@ -677,7 +1027,7 @@ func (m interactiveModel) doBatchConvert() tea.Cmd {
 				continue
 			}
 
-			outputPath := converter.BuildOutputPath(f, outputDir, m.targetFormat, "")
+			outputPath := converter.BuildOutputPath(f, m.defaultOutput, m.targetFormat, "")
 			opts := converter.Options{Quality: 0, Verbose: false}
 
 			if err := conv.Convert(f, outputPath, opts); err != nil {
@@ -700,19 +1050,43 @@ func (m interactiveModel) doBatchConvert() tea.Cmd {
 // Yardımcı fonksiyonlar
 // ========================================
 
-func getUniqueSourceFormats() []string {
-	pairs := converter.GetAllConversions()
-	formatSet := make(map[string]bool)
-	for _, p := range pairs {
-		formatSet[p.From] = true
+func getHomeDir() string {
+	u, err := user.Current()
+	if err != nil {
+		return "/"
 	}
+	return u.HomeDir
+}
 
-	var formats []string
-	for f := range formatSet {
-		formats = append(formats, strings.ToUpper(f))
+func shortenPath(path string) string {
+	home := getHomeDir()
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
 	}
-	sort.Strings(formats)
-	return formats
+	return path
+}
+
+func gradientText(text string, colors []lipgloss.Color) string {
+	if len(colors) == 0 {
+		return text
+	}
+	runes := []rune(text)
+	var result strings.Builder
+	for i, r := range runes {
+		colorIdx := i % len(colors)
+		style := lipgloss.NewStyle().Bold(true).Foreground(colors[colorIdx])
+		result.WriteString(style.Render(string(r)))
+	}
+	return result.String()
+}
+
+func sortedKeys(m map[string]bool) []string {
+	var keys []string
+	for k := range m {
+		keys = append(keys, strings.ToUpper(k))
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func formatDuration(d time.Duration) string {
@@ -727,11 +1101,69 @@ func formatDuration(d time.Duration) string {
 
 // ========================================
 // Giriş noktası
+// viewDependencies sistem bağımlılıklarını gösterir
+func (m interactiveModel) viewDependencies() string {
+	var b strings.Builder
+
+	b.WriteString(bannerStyle.Render("SİSTEM KONTROLÜ & BAĞIMLILIKLAR"))
+	b.WriteString("\n\n")
+
+	b.WriteString(dimStyle.Render("Bu araçların kurulu olması daha kaliteli dönüşüm sağlar."))
+	b.WriteString("\n\n")
+
+	// Başlık
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%-15s %-10s %-35s %s", "ARAÇ", "DURUM", "YOL", "VERSİYON")))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(strings.Repeat("-", 80)))
+	b.WriteString("\n")
+
+	for _, tool := range m.dependencies {
+		status := "❌ Yok"
+		statusStyle := errorStyle
+		if tool.Available {
+			status = "✅ Var"
+			statusStyle = successStyle
+		}
+
+		path := tool.Path
+		if len(path) > 35 {
+			path = "..." + path[len(path)-32:]
+		}
+		if path == "" {
+			path = "-"
+		}
+
+		ver := tool.Version
+		if ver == "" {
+			ver = "-"
+		}
+
+		line := fmt.Sprintf("%-15s %-10s %-35s %s",
+			tool.Name,
+			status,
+			path,
+			ver,
+		)
+
+		if tool.Available {
+			b.WriteString(statusStyle.Render(line))
+		} else {
+			b.WriteString(dimStyle.Render(line))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("ESC: Geri dön"))
+
+	return b.String()
+}
+
 // ========================================
 
-// RunInteractive interaktif TUI modunu başlatır
 func RunInteractive() error {
-	p := tea.NewProgram(newInteractiveModel(), tea.WithAltScreen())
+	deps := converter.CheckDependencies()
+	p := tea.NewProgram(newInteractiveModel(deps), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
