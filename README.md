@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square" alt="Platform">
-  <a href="https://goreportcard.com/report/github.com/melihgenel/fileconverter-cli"><img src="https://goreportcard.com/badge/github.com/melihgenel/fileconverter-cli?style=flat-square" alt="Go Report Card"></a>
+  <a href="https://goreportcard.com/report/github.com/mlihgenel/fileconverter-cli"><img src="https://goreportcard.com/badge/github.com/mlihgenel/fileconverter-cli?style=flat-square" alt="Go Report Card"></a>
 </p>
 
 ---
@@ -36,7 +36,7 @@ Günümüzde dosya dönüştürmek için kullanılan çoğu çevrimiçi araç, d
 Eğer sisteminizde Go kurulu ise, tek komutla kurabilirsiniz:
 
 ```bash
-go install github.com/melihgenel/fileconverter-cli@latest
+go install github.com/mlihgenel/fileconverter-cli@latest
 ```
 
 ### Yöntem 2: Kaynaktan Derleme
@@ -44,10 +44,12 @@ go install github.com/melihgenel/fileconverter-cli@latest
 Projeyi klonlayıp kendiniz derleyebilirsiniz:
 
 ```bash
-git clone https://github.com/melihgenel/fileconverter-cli.git
+git clone https://github.com/mlihgenel/fileconverter-cli.git
 cd fileconverter
 go build -o fileconverter .
 ```
+
+> **Not:** Kaynaktan derlediyseniz ve `GOPATH/bin` yolunda değilseniz, aşağıdaki komutları başına `./` ekleyerek çalıştırmalısınız (örneğin `./fileconverter`).
 
 ### Gereksinimler
 
@@ -165,9 +167,9 @@ FileConverter/
 Katkılarınızı bekliyoruz!
 
 1.  Bu depoyu Fork'layın.
-2.  Yeni bir özellik için branch oluşturun (`git checkout -b feature/harika-ozellik`).
-3.  Değişikliklerinizi commit yapın (`git commit -m 'Harika özellik eklendi'`).
-4.  Branch'inizi Push edin (`git push origin feature/harika-ozellik`).
+2.  Yeni bir özellik için branch oluşturun (`git checkout -b feature/new-feature`).
+3.  Değişikliklerinizi commit yapın (`git commit -m 'New feature added'`).
+4.  Branch'inizi Push edin (`git push origin feature/new-feature`).
 5.  Bir Pull Request oluşturun.
 
 ## 📄 Lisans
