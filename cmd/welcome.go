@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/melihgenel/fileconverter-cli/internal/installer"
+	"github.com/mlihgenel/fileconverter-cli/internal/installer"
 )
 
 // ========================================

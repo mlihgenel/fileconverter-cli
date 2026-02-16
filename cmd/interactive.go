@@ -12,9 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/melihgenel/fileconverter-cli/internal/config"
-	"github.com/melihgenel/fileconverter-cli/internal/converter"
-	"github.com/melihgenel/fileconverter-cli/internal/installer"
+	"github.com/mlihgenel/fileconverter-cli/internal/config"
+	"github.com/mlihgenel/fileconverter-cli/internal/converter"
+	"github.com/mlihgenel/fileconverter-cli/internal/installer"
 )
 
 // ========================================

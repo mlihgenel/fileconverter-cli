@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/melihgenel/fileconverter-cli/internal/converter"
-	"github.com/melihgenel/fileconverter-cli/internal/ui"
+	"github.com/mlihgenel/fileconverter-cli/internal/converter"
+	"github.com/mlihgenel/fileconverter-cli/internal/ui"
 )
 
 var (
