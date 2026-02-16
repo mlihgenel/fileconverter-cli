@@ -39,6 +39,11 @@ Eğer sisteminizde Go kurulu ise, tek komutla kurabilirsiniz:
 go install github.com/mlihgenel/fileconverter-cli@latest
 ```
 
+> **Önemli Not:** Komut çalışmazsa (`command not found`), Go bin klasörünün yolunuza (PATH) ekli olduğundan emin olun:
+> ```bash
+> export PATH=$PATH:$(go env GOPATH)/bin
+> ```
+
 ### Yöntem 2: Kaynaktan Derleme
 
 Projeyi klonlayıp kendiniz derleyebilirsiniz:
@@ -64,12 +69,14 @@ Uygulama, ilk çalıştırıldığında bu araçları kontrol eder ve gerekirse 
 
 ## 📖 Kullanım
 
+Kurulum tamamlandıktan sonra terminalden `fileconverter-cli` komutunu kullanarak araca erişebilirsiniz.
+
 ### 1. İnteraktif Mod (TUI)
 
 Hiçbir parametre vermeden çalıştırdığınızda, kullanıcı dostu interaktif arayüz açılır:
 
 ```bash
-fileconverter
+fileconverter-cli
 ```
 
 Bu modda:
@@ -85,13 +92,13 @@ Otomasyon veya hızlı işlemler için komut satırı argümanlarını kullanabi
 
 ```bash
 # Markdown dosyasını PDF'e çevir
-fileconverter convert belge.md --to pdf
+fileconverter-cli convert belge.md --to pdf
 
 # Resmi PNG formatına çevir
-fileconverter convert icon.jpg --to png
+fileconverter-cli convert icon.jpg --to png
 
 # Ses dosyasını WAV formatına çevir
-fileconverter convert ses.mp3 --to wav
+fileconverter-cli convert ses.mp3 --to wav
 ```
 
 #### Toplu (Batch) Dönüşüm
@@ -100,13 +107,13 @@ Klasördeki tüm dosyaları tek seferde dönüştürün:
 
 ```bash
 # 'belgeler' klasöründeki tüm .md dosyalarını .html yap
-fileconverter batch ./belgeler --from md --to html
+fileconverter-cli batch ./belgeler --from md --to html
 
 # Alt klasörleri de dahil et (--recursive)
-fileconverter batch ./projeler --from docx --to pdf --recursive
+fileconverter-cli batch ./projeler --from docx --to pdf --recursive
 
 # Paralel işlem sayısını belirle (Hız artırma)
-fileconverter batch ./fotograflar --from joy --to png --workers 8
+fileconverter-cli batch ./fotograflar --from joy --to png --workers 8
 ```
 
 ---
@@ -151,26 +158,57 @@ Aşağıdaki tüm formatlar arasında çapraz dönüşüm yapılabilir:
 
 ## 🏗️ Proje Yapısı
 
+Proje, modern Go CLI standartlarına uygun olarak modüler bir yapıda tasarlanmıştır:
+
 ```
 FileConverter/
-├── cmd/                 # Komut satırı ve TUI mantığı (Cobra & Bubble Tea)
-├── internal/
-│   ├── converter/       # Dönüştürme motoru (Factory Pattern)
-│   ├── batch/           # Paralel işleme (Worker Pool)
-│   ├── config/          # Yapılandırma yönetimi
-│   └── ui/              # Ortak UI bileşenleri
-└── assets/              # Görseller ve kaynak dosyalar
+├── cmd/                 # Komut satırı arayüzü (CLI) mantığı
+│   ├── root.go          # Ana komut ve global flag tanımları
+│   ├── interactive.go   # TUI (Terminal Kullanıcı Arayüzü) mantığı
+│   ├── convert.go       # Tekli dosya dönüştürme komutu
+│   ├── batch.go         # Toplu dönüştürme komutu
+│   └── ...
+├── internal/            # Uygulama iş mantığı (Business Logic)
+│   ├── converter/       # Dönüştürme motoru ve stratejileri (Factory Pattern)
+│   ├── batch/           # Paralel işleme ve worker pool yönetimi
+│   ├── config/          # Yapılandırma ve ayar yönetimi
+│   ├── installer/       # Harici bağımlılık (FFmpeg) kontrolü ve kurulumu
+│   └── ui/              # Ortak UI bileşenleri ve stiller
+├── assets/              # Statik dosyalar ve görseller
+└── main.go              # Uygulama giriş noktası
 ```
 
 ## 🤝 Katkıda Bulunma
 
-Katkılarınızı bekliyoruz!
+FileConverter açık kaynaklı bir projedir ve katkılarınızı memnuniyetle karşılıyoruz. Projeyi geliştirmek için aşağıdaki adımları izleyebilirsiniz:
 
-1.  Bu depoyu Fork'layın.
-2.  Yeni bir özellik için branch oluşturun (`git checkout -b feature/new-feature`).
-3.  Değişikliklerinizi commit yapın (`git commit -m 'New feature added'`).
-4.  Branch'inizi Push edin (`git push origin feature/new-feature`).
-5.  Bir Pull Request oluşturun.
+### Geliştirme Süreci
+
+1.  **Fork Edin**: Bu depoyu (repository) kendi GitHub hesabınıza forklayın.
+2.  **Klonlayın**: Forkladığınız depoyu yerel makinenize indirin.
+    ```bash
+    git clone https://github.com/KULLANICI_ADINIZ/fileconverter-cli.git
+    ```
+3.  **Branch Oluşturun**: Yapacağınız değişiklik için yeni bir dal (branch) açın.
+    ```bash
+    git checkout -b feature/yeni-ozellik
+    # veya
+    git checkout -b fix/hata-duzeltmesi
+    ```
+4.  **Geliştirin**: Kodunuzu yazın ve testlerinizi yapın. Kod standartlarına uyduğunuzdan emin olun.
+5.  **Commitleyin**: Değişikliklerinizi net ve açıklayıcı mesajlarla kaydedin.
+    ```bash
+    git commit -m "feat: yeni format desteği eklendi (XYZ)"
+    ```
+6.  **Push Edin**: Dalınızı GitHub'a gönderin.
+    ```bash
+    git push origin feature/yeni-ozellik
+    ```
+7.  **Pull Request (PR)**: GitHub üzerinden ana depoya (main branch) bir Pull Request gönderin. Açıklamada neyi, neden değiştirdiğinizi belirtin.
+
+### Raporlama
+
+Hata bildirimleri ve özellik istekleri için lütfen [Issues](https://github.com/mlihgenel/fileconverter-cli/issues) sayfasını kullanın. Bir sorun bildirirken, hatayı yeniden oluşturmak için gerekli adımları ve ortam bilgilerinizi (OS, Go sürümü vb.) eklemeyi unutmayın.
 
 ## 📄 Lisans
 
