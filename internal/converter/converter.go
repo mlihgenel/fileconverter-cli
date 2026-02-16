@@ -126,12 +126,14 @@ func NormalizeFormat(format string) string {
 
 	// Yaygın alternatif isimler
 	aliases := map[string]string{
-		"markdown": "md",
-		"jpeg":     "jpg",
-		"tiff":     "tif",
-		"wave":     "wav",
-		"text":     "txt",
-		"plaintext": "txt",
+		"markdown":       "md",
+		"jpeg":           "jpg",
+		"tiff":           "tif",
+		"wave":           "wav",
+		"text":           "txt",
+		"plaintext":      "txt",
+		"opendocument":   "odt",
+		"richtextformat": "rtf",
 	}
 
 	if alias, ok := aliases[format]; ok {

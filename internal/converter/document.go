@@ -3,7 +3,9 @@ package converter
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,26 +38,56 @@ func (d *DocumentConverter) SupportedConversions() []ConversionPair {
 		{From: "md", To: "txt", Description: "Markdown → Plain Text"},
 		{From: "md", To: "pdf", Description: "Markdown → PDF"},
 		{From: "md", To: "docx", Description: "Markdown → DOCX"},
+		{From: "md", To: "odt", Description: "Markdown → ODT"},
+		{From: "md", To: "rtf", Description: "Markdown → RTF"},
 		// HTML dönüşümleri
 		{From: "html", To: "txt", Description: "HTML → Plain Text"},
 		{From: "html", To: "md", Description: "HTML → Markdown"},
 		{From: "html", To: "pdf", Description: "HTML → PDF"},
 		{From: "html", To: "docx", Description: "HTML → DOCX"},
+		{From: "html", To: "odt", Description: "HTML → ODT"},
+		{From: "html", To: "rtf", Description: "HTML → RTF"},
 		// PDF dönüşümleri
 		{From: "pdf", To: "txt", Description: "PDF → Plain Text"},
 		{From: "pdf", To: "docx", Description: "PDF → DOCX"},
 		{From: "pdf", To: "html", Description: "PDF → HTML"},
 		{From: "pdf", To: "md", Description: "PDF → Markdown"},
+		{From: "pdf", To: "odt", Description: "PDF → ODT"},
+		{From: "pdf", To: "rtf", Description: "PDF → RTF"},
 		// DOCX dönüşümleri
 		{From: "docx", To: "txt", Description: "DOCX → Plain Text"},
 		{From: "docx", To: "pdf", Description: "DOCX → PDF"},
 		{From: "docx", To: "html", Description: "DOCX → HTML"},
 		{From: "docx", To: "md", Description: "DOCX → Markdown"},
+		{From: "docx", To: "odt", Description: "DOCX → ODT"},
+		{From: "docx", To: "rtf", Description: "DOCX → RTF"},
 		// TXT dönüşümleri
 		{From: "txt", To: "pdf", Description: "Plain Text → PDF"},
 		{From: "txt", To: "html", Description: "Plain Text → HTML"},
 		{From: "txt", To: "docx", Description: "Plain Text → DOCX"},
 		{From: "txt", To: "md", Description: "Plain Text → Markdown"},
+		{From: "txt", To: "odt", Description: "Plain Text → ODT"},
+		{From: "txt", To: "rtf", Description: "Plain Text → RTF"},
+		// ODT dönüşümleri
+		{From: "odt", To: "pdf", Description: "ODT → PDF"},
+		{From: "odt", To: "docx", Description: "ODT → DOCX"},
+		{From: "odt", To: "html", Description: "ODT → HTML"},
+		{From: "odt", To: "txt", Description: "ODT → Plain Text"},
+		{From: "odt", To: "md", Description: "ODT → Markdown"},
+		{From: "odt", To: "rtf", Description: "ODT → RTF"},
+		// RTF dönüşümleri
+		{From: "rtf", To: "pdf", Description: "RTF → PDF"},
+		{From: "rtf", To: "docx", Description: "RTF → DOCX"},
+		{From: "rtf", To: "html", Description: "RTF → HTML"},
+		{From: "rtf", To: "txt", Description: "RTF → Plain Text"},
+		{From: "rtf", To: "md", Description: "RTF → Markdown"},
+		{From: "rtf", To: "odt", Description: "RTF → ODT"},
+		// CSV dönüşümleri
+		{From: "csv", To: "html", Description: "CSV → HTML Tablo"},
+		{From: "csv", To: "md", Description: "CSV → Markdown Tablo"},
+		{From: "csv", To: "txt", Description: "CSV → Plain Text"},
+		{From: "csv", To: "pdf", Description: "CSV → PDF"},
+		{From: "csv", To: "xlsx", Description: "CSV → XLSX"},
 	}
 }
 
@@ -82,6 +114,12 @@ func (d *DocumentConverter) Convert(input string, output string, opts Options) e
 		return d.mdToPDF(input, output)
 	case from == "md" && to == "docx":
 		return d.textToDocx(input, output, true)
+	case from == "md" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", func() error {
+			return d.textToDocx(input, output, true)
+		})
+	case from == "md" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
 	// HTML dönüşümleri
 	case from == "html" && to == "txt":
 		return d.htmlToTxt(input, output)
@@ -91,6 +129,10 @@ func (d *DocumentConverter) Convert(input string, output string, opts Options) e
 		return d.htmlToPDF(input, output)
 	case from == "html" && to == "docx":
 		return d.htmlToDocx(input, output)
+	case from == "html" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", nil)
+	case from == "html" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
 	// PDF dönüşümleri
 	case from == "pdf" && to == "txt":
 		return d.pdfToTxt(input, output)
@@ -100,6 +142,16 @@ func (d *DocumentConverter) Convert(input string, output string, opts Options) e
 		return d.pdfToHTML(input, output)
 	case from == "pdf" && to == "md":
 		return d.pdfToMd(input, output)
+	case from == "pdf" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", func() error {
+			text, err := d.extractPdfText(input)
+			if err != nil {
+				return err
+			}
+			return createSimpleDocx(output, text)
+		})
+	case from == "pdf" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
 	// DOCX dönüşümleri
 	case from == "docx" && to == "txt":
 		return d.docxToTxt(input, output)
@@ -109,6 +161,10 @@ func (d *DocumentConverter) Convert(input string, output string, opts Options) e
 		return d.docxToHTML(input, output)
 	case from == "docx" && to == "md":
 		return d.docxToMd(input, output)
+	case from == "docx" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", nil)
+	case from == "docx" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
 	// TXT dönüşümleri
 	case from == "txt" && to == "pdf":
 		return d.txtToPDF(input, output, opts)
@@ -118,6 +174,68 @@ func (d *DocumentConverter) Convert(input string, output string, opts Options) e
 		return d.textToDocx(input, output, false)
 	case from == "txt" && to == "md":
 		return d.txtToMd(input, output)
+	case from == "txt" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", func() error {
+			return d.textToDocx(input, output, false)
+		})
+	case from == "txt" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
+	// ODT dönüşümleri
+	case from == "odt" && to == "pdf":
+		return d.odtToPDF(input, output)
+	case from == "odt" && to == "docx":
+		return d.convertViaLibreOffice(input, output, "docx", func() error {
+			text := d.extractOdtText(input)
+			return createSimpleDocx(output, text)
+		})
+	case from == "odt" && to == "html":
+		return d.convertViaLibreOffice(input, output, "html", func() error {
+			text := d.extractOdtText(input)
+			return d.textToHTMLFile(output, text)
+		})
+	case from == "odt" && to == "txt":
+		text := d.extractOdtText(input)
+		return os.WriteFile(output, []byte(text), 0644)
+	case from == "odt" && to == "md":
+		text := d.extractOdtText(input)
+		return os.WriteFile(output, []byte(text), 0644)
+	case from == "odt" && to == "rtf":
+		return d.convertViaLibreOffice(input, output, "rtf", nil)
+	// RTF dönüşümleri
+	case from == "rtf" && to == "pdf":
+		return d.convertViaLibreOffice(input, output, "pdf", func() error {
+			text := d.extractRtfText(input)
+			return createPDF(output, text, 12)
+		})
+	case from == "rtf" && to == "docx":
+		return d.convertViaLibreOffice(input, output, "docx", func() error {
+			text := d.extractRtfText(input)
+			return createSimpleDocx(output, text)
+		})
+	case from == "rtf" && to == "html":
+		return d.convertViaLibreOffice(input, output, "html", func() error {
+			text := d.extractRtfText(input)
+			return d.textToHTMLFile(output, text)
+		})
+	case from == "rtf" && to == "txt":
+		text := d.extractRtfText(input)
+		return os.WriteFile(output, []byte(text), 0644)
+	case from == "rtf" && to == "md":
+		text := d.extractRtfText(input)
+		return os.WriteFile(output, []byte(text), 0644)
+	case from == "rtf" && to == "odt":
+		return d.convertViaLibreOffice(input, output, "odt", nil)
+	// CSV dönüşümleri
+	case from == "csv" && to == "html":
+		return d.csvToHTML(input, output)
+	case from == "csv" && to == "md":
+		return d.csvToMd(input, output)
+	case from == "csv" && to == "txt":
+		return d.csvToTxt(input, output)
+	case from == "csv" && to == "pdf":
+		return d.csvToPDF(input, output)
+	case from == "csv" && to == "xlsx":
+		return d.convertViaLibreOffice(input, output, "xlsx", nil)
 	default:
 		return fmt.Errorf("desteklenmeyen dönüşüm: %s → %s", from, to)
 	}
@@ -1253,4 +1371,300 @@ func addFileToZip(w *zip.Writer, name string, content string) error {
 		return fmt.Errorf("zip dosyasına yazılamadı (%s): %w", name, err)
 	}
 	return nil
+}
+
+// ========================================
+// ODT, RTF, CSV ve LibreOffice yardımcı fonksiyonları
+// ========================================
+
+// convertViaLibreOffice LibreOffice ile dönüştürme yapar, başarısız olursa fallback kullanır
+func (d *DocumentConverter) convertViaLibreOffice(input, output, targetFmt string, fallback func() error) error {
+	if IsLibreOfficeAvailable() {
+		if err := ConvertWithLibreOffice(input, output, targetFmt); err == nil {
+			return nil
+		}
+	}
+	if fallback != nil {
+		return fallback()
+	}
+	return fmt.Errorf("bu dönüşüm için LibreOffice gereklidir. Lütfen LibreOffice'i kurun")
+}
+
+// odtToPDF ODT → PDF dönüşümü
+func (d *DocumentConverter) odtToPDF(input, output string) error {
+	// Öncelik 1: LibreOffice
+	if IsLibreOfficeAvailable() {
+		if err := ConvertWithLibreOffice(input, output, "pdf"); err == nil {
+			return nil
+		}
+	}
+	// Öncelik 2: Metin çıkar ve PDF oluştur
+	text := d.extractOdtText(input)
+	return createPDF(output, text, 12)
+}
+
+// extractOdtText ODT dosyasından düz metin çıkarır (content.xml içinden)
+func (d *DocumentConverter) extractOdtText(input string) string {
+	r, err := zip.OpenReader(input)
+	if err != nil {
+		// Dosya okunamadıysa boş dön
+		source, _ := os.ReadFile(input)
+		return string(source)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.Name == "content.xml" {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				continue
+			}
+			// XML etiketlerini temizle
+			text := stripHTMLTags(string(data))
+			return text
+		}
+	}
+	// content.xml bulunamazsa ham dosyayı oku
+	source, _ := os.ReadFile(input)
+	return string(source)
+}
+
+// extractRtfText RTF dosyasından düz metin çıkarır (kontrol kelimelerini temizler)
+func (d *DocumentConverter) extractRtfText(input string) string {
+	source, err := os.ReadFile(input)
+	if err != nil {
+		return ""
+	}
+
+	text := string(source)
+	var result strings.Builder
+	i := 0
+	depth := 0
+
+	for i < len(text) {
+		ch := text[i]
+		switch {
+		case ch == '{':
+			depth++
+			i++
+		case ch == '}':
+			depth--
+			i++
+		case ch == '\\' && i+1 < len(text):
+			i++
+			// Kontrol kelimesini atla
+			if text[i] == '\'' && i+2 < len(text) {
+				// Hex karakter, atla
+				i += 3
+			} else if text[i] == '\n' || text[i] == '\r' {
+				i++
+			} else {
+				// Kontrol kelimesini oku
+				word := strings.Builder{}
+				for i < len(text) && ((text[i] >= 'a' && text[i] <= 'z') || (text[i] >= 'A' && text[i] <= 'Z')) {
+					word.WriteByte(text[i])
+					i++
+				}
+				// Opsiyonel sayısal parametre
+				for i < len(text) && ((text[i] >= '0' && text[i] <= '9') || text[i] == '-') {
+					i++
+				}
+				// Boşluk ayırıcı
+				if i < len(text) && text[i] == ' ' {
+					i++
+				}
+				w := word.String()
+				if w == "par" || w == "line" {
+					result.WriteString("\n")
+				} else if w == "tab" {
+					result.WriteString("\t")
+				}
+			}
+		case depth <= 1 && ch != '\n' && ch != '\r':
+			result.WriteByte(ch)
+			i++
+		default:
+			i++
+		}
+	}
+
+	return strings.TrimSpace(result.String())
+}
+
+// --- CSV dönüşüm helpers ---
+
+// csvToHTML CSV → HTML tablo dönüşümü
+func (d *DocumentConverter) csvToHTML(input, output string) error {
+	records, err := readCSV(input)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(`<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV Verileri</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+th { background: #f4f4f4; font-weight: bold; }
+tr:nth-child(even) { background-color: #fafafa; }
+tr:hover { background-color: #f0f0f0; }
+</style>
+</head>
+<body>
+<table>
+`)
+
+	for i, row := range records {
+		buf.WriteString("<tr>\n")
+		tag := "td"
+		if i == 0 {
+			tag = "th"
+		}
+		for _, cell := range row {
+			cell = strings.ReplaceAll(cell, "&", "&amp;")
+			cell = strings.ReplaceAll(cell, "<", "&lt;")
+			cell = strings.ReplaceAll(cell, ">", "&gt;")
+			buf.WriteString(fmt.Sprintf("  <%s>%s</%s>\n", tag, cell, tag))
+		}
+		buf.WriteString("</tr>\n")
+	}
+
+	buf.WriteString("</table>\n</body>\n</html>")
+	return os.WriteFile(output, buf.Bytes(), 0644)
+}
+
+// csvToMd CSV → Markdown tablo dönüşümü
+func (d *DocumentConverter) csvToMd(input, output string) error {
+	records, err := readCSV(input)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return os.WriteFile(output, []byte(""), 0644)
+	}
+
+	var buf strings.Builder
+
+	// Header
+	buf.WriteString("| " + strings.Join(records[0], " | ") + " |\n")
+	// Separator
+	seps := make([]string, len(records[0]))
+	for i := range seps {
+		seps[i] = "---"
+	}
+	buf.WriteString("| " + strings.Join(seps, " | ") + " |\n")
+	// Rows
+	for _, row := range records[1:] {
+		buf.WriteString("| " + strings.Join(row, " | ") + " |\n")
+	}
+
+	return os.WriteFile(output, []byte(buf.String()), 0644)
+}
+
+// csvToTxt CSV → düz metin dönüşümü
+func (d *DocumentConverter) csvToTxt(input, output string) error {
+	records, err := readCSV(input)
+	if err != nil {
+		return err
+	}
+
+	// Sütun genişliklerini hesapla
+	colWidths := make([]int, 0)
+	for _, row := range records {
+		for i, cell := range row {
+			for len(colWidths) <= i {
+				colWidths = append(colWidths, 0)
+			}
+			if len(cell) > colWidths[i] {
+				colWidths[i] = len(cell)
+			}
+		}
+	}
+
+	var buf strings.Builder
+	for _, row := range records {
+		for i, cell := range row {
+			w := 10
+			if i < len(colWidths) {
+				w = colWidths[i]
+			}
+			buf.WriteString(fmt.Sprintf("%-*s  ", w, cell))
+		}
+		buf.WriteString("\n")
+	}
+
+	return os.WriteFile(output, []byte(buf.String()), 0644)
+}
+
+// csvToPDF CSV → PDF tablo dönüşümü
+func (d *DocumentConverter) csvToPDF(input, output string) error {
+	records, err := readCSV(input)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return createPDF(output, "Boş CSV dosyası", 12)
+	}
+
+	p, hasUTF8 := initPDFWithFont()
+	p.AddPage()
+
+	// Sütun genişliği hesapla
+	numCols := len(records[0])
+	pageWidth, _ := p.GetPageSize()
+	leftMargin, _, rightMargin, _ := p.GetMargins()
+	tableWidth := pageWidth - leftMargin - rightMargin
+	colWidth := tableWidth / float64(numCols)
+	cellHeight := 7.0
+
+	for rowIdx, row := range records {
+		if rowIdx == 0 {
+			setFont(p, hasUTF8, "B", 9.5)
+			p.SetFillColor(240, 240, 240)
+		} else {
+			setFont(p, hasUTF8, "", 9.5)
+			p.SetFillColor(255, 255, 255)
+		}
+		p.SetDrawColor(200, 200, 200)
+		for j := 0; j < numCols; j++ {
+			cellText := ""
+			if j < len(row) {
+				cellText = writeText(p, hasUTF8, row[j])
+			}
+			p.CellFormat(colWidth, cellHeight, " "+cellText, "1", 0, "", rowIdx == 0, 0, "")
+		}
+		p.Ln(cellHeight)
+	}
+
+	return p.OutputFileAndClose(output)
+}
+
+// readCSV CSV dosyasını okur
+func readCSV(input string) ([][]string, error) {
+	f, err := os.Open(input)
+	if err != nil {
+		return nil, fmt.Errorf("CSV dosyası açılamadı: %w", err)
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1 // Değişken sayıda sütun kabul et
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("CSV okuma hatası: %w", err)
+	}
+	return records, nil
 }

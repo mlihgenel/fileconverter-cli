@@ -12,7 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/melihgenel/fileconverter/internal/config"
 	"github.com/melihgenel/fileconverter/internal/converter"
+	"github.com/melihgenel/fileconverter/internal/installer"
 )
 
 // ========================================
@@ -112,9 +114,9 @@ type formatCategory struct {
 }
 
 var categories = []formatCategory{
-	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT — çapraz dönüşüm", Formats: []string{"md", "html", "pdf", "docx", "txt"}},
-	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma"}},
-	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif"}},
+	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV", Formats: []string{"md", "html", "pdf", "docx", "txt", "odt", "rtf", "csv"}},
+	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}},
+	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}},
 }
 
 // ========================================
@@ -124,7 +126,10 @@ var categories = []formatCategory{
 type screenState int
 
 const (
-	stateMainMenu screenState = iota
+	stateWelcomeIntro screenState = iota
+	stateWelcomeDeps
+	stateWelcomeInstalling
+	stateMainMenu
 	stateSelectCategory
 	stateSelectSourceFormat
 	stateSelectTargetFormat
@@ -138,6 +143,10 @@ const (
 	stateBatchDone
 	stateFormats
 	stateDependencies
+	stateSettings
+	stateSettingsBrowser
+	stateMissingDep
+	stateMissingDepInstalling
 )
 
 // ========================================
@@ -189,6 +198,23 @@ type interactiveModel struct {
 
 	// Sistem durumu
 	dependencies []converter.ExternalTool
+
+	// Karşılama ekranı
+	isFirstRun         bool
+	welcomeCharIdx     int
+	showCursor         bool
+	installingToolName string
+	installResult      string
+
+	// Dönüşüm öncesi bağımlılık kontrolü
+	pendingConvertCmd  tea.Cmd
+	missingDepName     string
+	missingDepToolName string
+	isBatchPending     bool
+
+	// Ayarlar
+	settingsBrowserDir   string
+	settingsBrowserItems []browserEntry
 }
 
 type browserEntry struct {
@@ -211,35 +237,53 @@ type batchDoneMsg struct {
 	duration  time.Duration
 }
 
+type installDoneMsg struct {
+	err error
+}
+
 type tickMsg time.Time
 
-func newInteractiveModel(deps []converter.ExternalTool) interactiveModel {
+func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interactiveModel {
 	homeDir := getHomeDir()
-	desktop := filepath.Join(homeDir, "Desktop")
+
+	initialState := stateMainMenu
+	if firstRun {
+		initialState = stateWelcomeIntro
+	}
+
+	// Varsayılan çıktı dizinini config'den oku
+	outputDir := config.GetDefaultOutputDir()
+	if outputDir == "" {
+		outputDir = filepath.Join(homeDir, "Desktop")
+	}
 
 	return interactiveModel{
-		state:  stateMainMenu,
+		state:  initialState,
 		cursor: 0,
 		choices: []string{
 			"Dosya Dönüştür",
 			"Toplu Dönüştür (Batch)",
 			"Desteklenen Formatlar",
 			"Sistem Kontrolü",
+			"Ayarlar",
 			"Çıkış",
 		},
-		choiceIcons: []string{"🔄", "📦", "📋", "🔧", "👋"},
+		choiceIcons: []string{"🔄", "📦", "📋", "🔧", "⚙️", "👋"},
 		choiceDescs: []string{
 			"Tek bir dosyayı başka formata dönüştür",
 			"Dizindeki tüm dosyaları toplu dönüştür",
 			"Desteklenen format ve dönüşüm yollarını gör",
-			"Harici araçların (LibreOffice, Pandoc) durumu",
+			"Harici araçların (FFmpeg, LibreOffice, Pandoc) durumu",
+			"Varsayılan çıktı dizini ve tercihler",
 			"Uygulamadan çık",
 		},
-		browserDir:    desktop,
-		defaultOutput: desktop,
+		browserDir:    outputDir,
+		defaultOutput: outputDir,
 		width:         80,
 		height:        24,
 		dependencies:  deps,
+		isFirstRun:    firstRun,
+		showCursor:    true,
 	}
 }
 
@@ -265,10 +309,42 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		if m.state == stateConverting || m.state == stateBatchConverting {
+		// Spinner animasyonu
+		if m.state == stateConverting || m.state == stateBatchConverting || m.state == stateWelcomeInstalling || m.state == stateMissingDepInstalling {
 			m.spinnerTick++
 			m.spinnerIdx = m.spinnerTick % len(spinnerFrames)
+			// Progress bar pulsing efekti
+			if m.spinnerTick%5 == 0 {
+				m.showCursor = !m.showCursor
+			}
 		}
+
+		// Karşılama ekranı typing animasyonu
+		if m.state == stateWelcomeIntro {
+			// Her tick'te 2 karakter ekle
+			totalDesiredChars := 0
+			for _, line := range welcomeDescLines {
+				totalDesiredChars += len([]rune(line))
+			}
+			if m.welcomeCharIdx < totalDesiredChars {
+				m.welcomeCharIdx += 2
+				if m.welcomeCharIdx > totalDesiredChars {
+					m.welcomeCharIdx = totalDesiredChars
+				}
+			}
+			// Yanıp sönen cursor
+			if m.spinnerTick%5 == 0 {
+				m.showCursor = !m.showCursor
+			}
+		}
+
+		// Bağımlılık ekranında cursor yanıp sönme
+		if m.state == stateWelcomeDeps {
+			if m.spinnerTick%5 == 0 {
+				m.showCursor = !m.showCursor
+			}
+		}
+
 		return m, tickCmd()
 
 	case convertDoneMsg:
@@ -291,7 +367,60 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.duration = msg.duration
 		return m, nil
 
+	case installDoneMsg:
+		// Bağımlılıkları yeniden kontrol et
+		m.dependencies = converter.CheckDependencies()
+
+		if m.state == stateMissingDepInstalling {
+			// Dönüşüm öncesi kurulumdan geliyoruz
+			if msg.err != nil {
+				m.resultMsg = fmt.Sprintf("❌ %s kurulamadı: %s", m.missingDepToolName, msg.err.Error())
+				m.resultErr = true
+				m.state = stateConvertDone
+				return m, nil
+			}
+			// Kurulum başarılı — dönüşüme devam et
+			if m.isBatchPending {
+				m.state = stateBatchConverting
+			} else {
+				m.state = stateConverting
+			}
+			return m, m.pendingConvertCmd
+		}
+
+		// Welcome ekranından geliyoruz
+		if msg.err != nil {
+			m.installResult = fmt.Sprintf("❌ Kurulum hatası: %s", msg.err.Error())
+		} else {
+			m.installResult = "✅ Kurulum tamamlandı!"
+		}
+		config.MarkFirstRunDone()
+		m.state = stateWelcomeDeps
+		m.cursor = 0
+		return m, nil
+
 	case tea.KeyMsg:
+		// Karşılama ekranında "q" çıkmaya yönlendirmesin
+		if m.state == stateWelcomeIntro || m.state == stateWelcomeDeps || m.state == stateWelcomeInstalling {
+			switch msg.String() {
+			case "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "enter":
+				return m.handleEnter()
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				max := m.getMaxCursor()
+				if m.cursor < max {
+					m.cursor++
+				}
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			m.quitting = true
@@ -332,6 +461,16 @@ func (m interactiveModel) getMaxCursor() int {
 		return len(m.browserItems) - 1
 	case stateFormats:
 		return 0
+	case stateWelcomeIntro:
+		return 0
+	case stateWelcomeDeps:
+		return 1
+	case stateSettings:
+		return 1
+	case stateMissingDep:
+		return 1
+	case stateSettingsBrowser:
+		return len(m.settingsBrowserItems) // +1 for "Bu dizini seç" button
 	default:
 		return len(m.choices) - 1
 	}
@@ -343,6 +482,12 @@ func (m interactiveModel) View() string {
 	}
 
 	switch m.state {
+	case stateWelcomeIntro:
+		return m.viewWelcomeIntro()
+	case stateWelcomeDeps:
+		return m.viewWelcomeDeps()
+	case stateWelcomeInstalling:
+		return m.viewWelcomeInstalling()
 	case stateMainMenu:
 		return m.viewMainMenu()
 	case stateSelectCategory:
@@ -369,6 +514,14 @@ func (m interactiveModel) View() string {
 		return m.viewFormats()
 	case stateDependencies:
 		return m.viewDependencies()
+	case stateSettings:
+		return m.viewSettings()
+	case stateSettingsBrowser:
+		return m.viewSettingsBrowser()
+	case stateMissingDep:
+		return m.viewMissingDep()
+	case stateMissingDepInstalling:
+		return m.viewMissingDepInstalling()
 	default:
 		return ""
 	}
@@ -381,28 +534,18 @@ func (m interactiveModel) View() string {
 func (m interactiveModel) viewMainMenu() string {
 	var b strings.Builder
 
-	// Gradient banner
-	banner := []string{
-		"  ╔════════════════════════════════════════════════════╗",
-		"  ║                                                    ║",
-		"  ║     		███████╗██╗██╗     ███████╗             ║",
-		"  ║     		██╔════╝██║██║     ██╔════╝             ║",
-		"  ║     		█████╗  ██║██║     █████╗               ║",
-		"  ║     		██╔══╝  ██║██║     ██╔══╝               ║",
-		"  ║     		██║     ██║███████╗███████╗             ║",
-		"  ║     		╚═╝     ╚═╝╚══════╝╚══════╝             ║",
-		"  ║        F I L E   C O N V E R T E R   v1.0.0        ║",
-		"  ║                                                    ║",
-		"  ║     Dosyalarınızı yerel ve güvenli dönüştürün      ║",
-		"  ╚════════════════════════════════════════════════════╝",
-	}
-
-	for i, line := range banner {
-		colorIdx := i % len(gradientColors)
-		style := lipgloss.NewStyle().Bold(true).Foreground(gradientColors[colorIdx])
+	// Welcome ekranındaki gradient ASCII art
+	for i, line := range welcomeArt {
+		colorIdx := i % len(welcomeGradient)
+		style := lipgloss.NewStyle().Bold(true).Foreground(welcomeGradient[colorIdx])
 		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
+
+	// Versiyon bilgisi
+	versionLine := fmt.Sprintf("             v%s  •  Yerel & Güvenli Dönüştürücü", appVersion)
+	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(versionLine))
+	b.WriteString("\n")
 
 	b.WriteString("\n")
 	b.WriteString(menuTitleStyle.Render(" ◆ Ana Menü "))
@@ -605,20 +748,79 @@ func (m interactiveModel) viewConverting() string {
 	var b strings.Builder
 	b.WriteString("\n\n")
 
+	// Başlık
 	frame := spinnerFrames[m.spinnerIdx]
-	spinnerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+	spinnerStyleLocal := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
 
-	b.WriteString(spinnerStyle.Render(fmt.Sprintf("  %s Dönüştürülüyor", frame)))
+	b.WriteString(spinnerStyleLocal.Render(fmt.Sprintf("  %s Dönüştürülüyor", frame)))
 
 	dots := strings.Repeat(".", (m.spinnerTick/3)%4)
 	b.WriteString(dimStyle.Render(dots))
 	b.WriteString("\n\n")
 
 	if m.selectedFile != "" {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  %s → %s",
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  📄 %s → %s",
 			filepath.Base(m.selectedFile),
 			strings.ToUpper(m.targetFormat))))
-		b.WriteString("\n")
+		b.WriteString("\n\n")
+	}
+
+	// Animated progress bar
+	barWidth := 40
+	// Simüle edilen ilerleme — tick bazlı (0-100 arası)
+	progress := m.spinnerTick * 3
+	if progress > 95 {
+		progress = 95 // Tamamlanana kadar %95'te bekle
+	}
+
+	filled := barWidth * progress / 100
+	if filled > barWidth {
+		filled = barWidth
+	}
+	empty := barWidth - filled
+
+	// Gradient progress bar karakterleri
+	var barStr strings.Builder
+	for i := 0; i < filled; i++ {
+		// Gradient efekti: soldan sağa renk geçişi
+		colorIdx := i * len(gradientColors) / barWidth
+		if colorIdx >= len(gradientColors) {
+			colorIdx = len(gradientColors) - 1
+		}
+		charStyle := lipgloss.NewStyle().Foreground(gradientColors[colorIdx])
+		barStr.WriteString(charStyle.Render("█"))
+	}
+	// Pulsing head karakter
+	if filled < barWidth && filled > 0 {
+		if m.showCursor {
+			barStr.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("▓"))
+			empty--
+		} else {
+			barStr.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Render("░"))
+			empty--
+		}
+	}
+	for i := 0; i < empty; i++ {
+		barStr.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Render("░"))
+	}
+
+	// Progress bar çerçevesi
+	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Render("  ["))
+	b.WriteString(barStr.String())
+	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Render("] "))
+
+	// Yüzde
+	percentStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+	b.WriteString(percentStyle.Render(fmt.Sprintf("%d%%", progress)))
+	b.WriteString("\n\n")
+
+	// Alt bilgi
+	b.WriteString(dimStyle.Render("  ⏳ İşlem devam ediyor, lütfen bekleyin..."))
+	b.WriteString("\n")
+
+	// Cursor blink (progress bar animasyonu için)
+	if m.spinnerTick%5 == 0 {
+		// showCursor toggle handled in Update
 	}
 
 	return b.String()
@@ -723,6 +925,49 @@ func (m interactiveModel) viewFormats() string {
 
 func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 	switch m.state {
+	case stateWelcomeIntro:
+		// Typing animasyonunu atla veya devam et
+		totalDesiredChars := 0
+		for _, line := range welcomeDescLines {
+			totalDesiredChars += len([]rune(line))
+		}
+		if m.welcomeCharIdx < totalDesiredChars {
+			// Animasyonu hızla bitir
+			m.welcomeCharIdx = totalDesiredChars
+			return m, nil
+		}
+		// Bağımlılık kontrol ekranına geç
+		m.state = stateWelcomeDeps
+		m.cursor = 0
+		return m, nil
+
+	case stateWelcomeDeps:
+		// Eksik araç var mı kontrol et
+		hasMissing := false
+		for _, dep := range m.dependencies {
+			if !dep.Available {
+				hasMissing = true
+				break
+			}
+		}
+
+		pm := installer.DetectPackageManager()
+
+		if hasMissing && pm != "" {
+			if m.cursor == 0 {
+				// Otomatik kur
+				m.state = stateWelcomeInstalling
+				return m, m.doInstallMissing()
+			}
+			// Atla
+			config.MarkFirstRunDone()
+			return m.goToMainMenu(), nil
+		}
+
+		// Eksik yok veya PM yok — devam et
+		config.MarkFirstRunDone()
+		return m.goToMainMenu(), nil
+
 	case stateMainMenu:
 		switch m.cursor {
 		case 0:
@@ -738,6 +983,11 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			m.cursor = 0
 			return m, nil
 		case 4:
+			// Ayarlar
+			m.state = stateSettings
+			m.cursor = 0
+			return m, nil
+		case 5:
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -766,6 +1016,16 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			} else {
 				// Dosya seç ve dönüştür
 				m.selectedFile = item.path
+				// Bağımlılık kontrolü yap
+				if depName, toolName := m.checkRequiredDep(); depName != "" {
+					m.missingDepName = depName
+					m.missingDepToolName = toolName
+					m.pendingConvertCmd = m.doConvert()
+					m.isBatchPending = false
+					m.state = stateMissingDep
+					m.cursor = 0
+					return m, nil
+				}
 				m.state = stateConverting
 				return m, m.doConvert()
 			}
@@ -781,8 +1041,64 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 
 	case stateBatchSelectTargetFormat:
 		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
+		// Batch için bağımlılık kontrolü
+		if depName, toolName := m.checkRequiredDep(); depName != "" {
+			m.missingDepName = depName
+			m.missingDepToolName = toolName
+			m.pendingConvertCmd = m.doBatchConvert()
+			m.isBatchPending = true
+			m.state = stateMissingDep
+			m.cursor = 0
+			return m, nil
+		}
 		m.state = stateBatchConverting
 		return m, m.doBatchConvert()
+
+	case stateMissingDep:
+		if m.cursor == 0 {
+			// Kur
+			m.state = stateMissingDepInstalling
+			m.installingToolName = m.missingDepToolName
+			return m, m.doInstallSingleTool(m.missingDepToolName)
+		}
+		// İptal
+		return m.goToMainMenu(), nil
+
+	case stateMissingDepInstalling:
+		// Kurulum tamamlandı (installDoneMsg tarafından yönetilecek)
+		return m, nil
+
+	case stateSettings:
+		switch m.cursor {
+		case 0:
+			// Varsayılan dizin değiştir
+			m.settingsBrowserDir = m.defaultOutput
+			m.loadSettingsBrowserItems()
+			m.state = stateSettingsBrowser
+			m.cursor = 0
+			return m, nil
+		case 1:
+			// Geri
+			return m.goToMainMenu(), nil
+		}
+
+	case stateSettingsBrowser:
+		if m.cursor < len(m.settingsBrowserItems) {
+			item := m.settingsBrowserItems[m.cursor]
+			if item.isDir {
+				m.settingsBrowserDir = item.path
+				m.cursor = 0
+				m.loadSettingsBrowserItems()
+				return m, nil
+			}
+		} else if m.cursor == len(m.settingsBrowserItems) {
+			// "Bu dizini seç" butonu
+			m.defaultOutput = m.settingsBrowserDir
+			config.SetDefaultOutputDir(m.settingsBrowserDir)
+			m.state = stateSettings
+			m.cursor = 0
+			return m, nil
+		}
 
 	case stateConvertDone, stateBatchDone:
 		return m.goToMainMenu(), nil
@@ -801,17 +1117,24 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.browserItems = nil
 	m.resultMsg = ""
 	m.resultErr = false
+	m.pendingConvertCmd = nil
+	m.missingDepName = ""
+	m.missingDepToolName = ""
 	m.choices = []string{
 		"Dosya Dönüştür",
 		"Toplu Dönüştür (Batch)",
 		"Desteklenen Formatlar",
+		"Sistem Kontrolü",
+		"Ayarlar",
 		"Çıkış",
 	}
-	m.choiceIcons = []string{"🔄", "📦", "📋", "👋"}
+	m.choiceIcons = []string{"🔄", "📦", "📋", "🔧", "⚙️", "👋"}
 	m.choiceDescs = []string{
 		"Tek bir dosyayı başka formata dönüştür",
 		"Dizindeki tüm dosyaları toplu dönüştür",
 		"Desteklenen format ve dönüşüm yollarını gör",
+		"Harici araçların (FFmpeg, LibreOffice, Pandoc) durumu",
+		"Varsayılan çıktı dizini ve tercihler",
 		"Uygulamadan çık",
 	}
 	return m
@@ -834,6 +1157,14 @@ func (m interactiveModel) goBack() interactiveModel {
 	case stateBatchSelectTargetFormat:
 		return m.goToSourceFormatSelect(true)
 	case stateConvertDone, stateBatchDone, stateFormats:
+		return m.goToMainMenu()
+	case stateSettings:
+		return m.goToMainMenu()
+	case stateSettingsBrowser:
+		m.state = stateSettings
+		m.cursor = 0
+		return m
+	case stateMissingDep:
 		return m.goToMainMenu()
 	default:
 		return m.goToMainMenu()
@@ -1161,9 +1492,273 @@ func (m interactiveModel) viewDependencies() string {
 
 // ========================================
 
+// doInstallMissing eksik araçları kurar
+func (m interactiveModel) doInstallMissing() tea.Cmd {
+	return func() tea.Msg {
+		for _, dep := range m.dependencies {
+			if !dep.Available {
+				_, err := installer.InstallTool(dep.Name)
+				if err != nil {
+					return installDoneMsg{err: err}
+				}
+			}
+		}
+		return installDoneMsg{err: nil}
+	}
+}
+
+// doInstallSingleTool tek bir aracı kurar
+func (m interactiveModel) doInstallSingleTool(toolName string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := installer.InstallTool(toolName)
+		return installDoneMsg{err: err}
+	}
+}
+
+// checkRequiredDep dönüşüm için gerekli bağımlılığı kontrol eder
+// Eksikse (depName, toolName) döner, yoksa ("", "") döner
+func (m interactiveModel) checkRequiredDep() (string, string) {
+	cat := categories[m.selectedCategory]
+
+	// Ses dönüşümü → FFmpeg
+	if cat.Name == "Ses Dosyaları" {
+		if !converter.IsFFmpegAvailable() {
+			return "FFmpeg", "ffmpeg"
+		}
+	}
+
+	// Belge dönüşümlerinde LibreOffice/Pandoc kontrolü
+	if cat.Name == "Belgeler" {
+		from := m.sourceFormat
+		to := m.targetFormat
+
+		// ODT/RTF dönüşümleri → LibreOffice gerekli
+		needsLibreOffice := false
+		libreOfficeFormats := map[string]bool{"odt": true, "rtf": true, "xlsx": true}
+		if libreOfficeFormats[from] || libreOfficeFormats[to] {
+			needsLibreOffice = true
+		}
+		// CSV → XLSX de LibreOffice gerektirir
+		if from == "csv" && to == "xlsx" {
+			needsLibreOffice = true
+		}
+		// DOCX/PDF çapraz dönüşümlerde LibreOffice yardımcı
+		if (from == "docx" || from == "pdf") && (to == "odt" || to == "rtf") {
+			needsLibreOffice = true
+		}
+
+		if needsLibreOffice && !converter.IsLibreOfficeAvailable() {
+			return "LibreOffice", "libreoffice"
+		}
+
+		// Pandoc kontrolü (md → pdf gibi bazı dönüşümler)
+		if (from == "md" && to == "pdf") || (from == "md" && to == "docx") {
+			if !converter.IsPandocAvailable() {
+				// Pandoc opsiyonel — Go fallback var, ama bilgilendirelim
+				// Zorunlu değil, bu yüzden boş dönüyoruz
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// loadSettingsBrowserItems ayarlar dizin tarayıcısına öğeleri yükler
+func (m *interactiveModel) loadSettingsBrowserItems() {
+	entries, err := os.ReadDir(m.settingsBrowserDir)
+	if err != nil {
+		m.settingsBrowserItems = nil
+		return
+	}
+
+	var items []browserEntry
+
+	// Üst dizin
+	parent := filepath.Dir(m.settingsBrowserDir)
+	if parent != m.settingsBrowserDir {
+		items = append(items, browserEntry{
+			name:  "📁 ..",
+			path:  parent,
+			isDir: true,
+		})
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue // Sadece dizinler
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue // Gizli dizinleri atla
+		}
+		items = append(items, browserEntry{
+			name:  "📁 " + e.Name(),
+			path:  filepath.Join(m.settingsBrowserDir, e.Name()),
+			isDir: true,
+		})
+	}
+
+	m.settingsBrowserItems = items
+}
+
+// ========================================
+// Yeni View Fonksiyonları
+// ========================================
+
+// viewSettings ayarlar ekranı
+func (m interactiveModel) viewSettings() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(" ⚙️  Ayarlar "))
+	b.WriteString("\n\n")
+
+	// Mevcut varsayılan dizin
+	b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render("  Varsayılan çıktı dizini:"))
+	b.WriteString("\n")
+	b.WriteString(pathStyle.Render("  " + m.defaultOutput))
+	b.WriteString("\n\n")
+
+	options := []string{"📂  Varsayılan dizini değiştir", "↩️   Ana menüye dön"}
+	for i, opt := range options {
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s", opt)))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s", opt)))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Geri"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// viewSettingsBrowser dizin seçici ekranı
+func (m interactiveModel) viewSettingsBrowser() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(" 📂 Varsayılan Çıktı Dizini Seç "))
+	b.WriteString("\n\n")
+
+	// Mevcut dizin
+	b.WriteString(dimStyle.Render("  Konum: "))
+	b.WriteString(pathStyle.Render(m.settingsBrowserDir))
+	b.WriteString("\n\n")
+
+	for i, item := range m.settingsBrowserItems {
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s", item.name)))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s", item.name)))
+		}
+		b.WriteString("\n")
+	}
+
+	// "Bu dizini seç" butonu
+	selectIdx := len(m.settingsBrowserItems)
+	b.WriteString("\n")
+	if m.cursor == selectIdx {
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("  ▸ ✅ Bu dizini seç"))
+	} else {
+		b.WriteString(dimStyle.Render("    ✅ Bu dizini seç"))
+	}
+	b.WriteString("\n")
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç/Gir  •  Esc Geri"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// viewMissingDep eksik bağımlılık uyarısı
+func (m interactiveModel) viewMissingDep() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+
+	// Uyarı kutusu
+	warningBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(warningColor).
+		Padding(1, 3).
+		MarginLeft(2).
+		Width(60)
+
+	content := fmt.Sprintf(
+		"⚠️  %s kurulu değil!\n\n"+
+			"%s olmadan %s → %s dönüşümü yapılamaz.\n\n"+
+			"Şimdi kurmak ister misiniz?",
+		m.missingDepName,
+		m.missingDepName,
+		strings.ToUpper(m.sourceFormat),
+		strings.ToUpper(m.targetFormat),
+	)
+
+	b.WriteString(warningBox.Render(content))
+	b.WriteString("\n\n")
+
+	options := []string{
+		fmt.Sprintf("✅  %s'i kur", m.missingDepName),
+		"❌  İptal et",
+	}
+	for i, opt := range options {
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("  ▸ %s", opt)))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("    %s", opt)))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+
+	// Paket yöneticisi bilgisi
+	pm := installer.DetectPackageManager()
+	if pm != "" {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Paket yöneticisi: %s", pm)))
+	} else {
+		b.WriteString(lipgloss.NewStyle().Foreground(warningColor).Render("  ⚠ Paket yöneticisi bulunamadı — manuel kurulum gerekebilir"))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// viewMissingDepInstalling bağımlılık kurulumu sırasında gösterilen ekran
+func (m interactiveModel) viewMissingDepInstalling() string {
+	var b strings.Builder
+
+	b.WriteString("\n\n")
+
+	frame := spinnerFrames[m.spinnerIdx]
+	spinnerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+
+	b.WriteString(spinnerStyle.Render(fmt.Sprintf("  %s %s kuruluyor", frame, m.missingDepToolName)))
+
+	dots := strings.Repeat(".", (m.spinnerTick/3)%4)
+	b.WriteString(dimStyle.Render(dots))
+	b.WriteString("\n\n")
+
+	b.WriteString(dimStyle.Render("  Lütfen bekleyin, kurulum devam ediyor..."))
+	b.WriteString("\n\n")
+
+	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(
+		"  Kurulum tamamlandığında dönüşüm otomatik başlayacak."))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
 func RunInteractive() error {
 	deps := converter.CheckDependencies()
-	p := tea.NewProgram(newInteractiveModel(deps), tea.WithAltScreen())
+	firstRun := config.IsFirstRun()
+	p := tea.NewProgram(newInteractiveModel(deps, firstRun), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

@@ -21,7 +21,7 @@ func (a *AudioConverter) Name() string {
 }
 
 // audioFormats desteklenen ses formatları
-var audioFormats = []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma"}
+var audioFormats = []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}
 
 func (a *AudioConverter) SupportedConversions() []ConversionPair {
 	var pairs []ConversionPair

@@ -1,11 +1,14 @@
 package converter
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"os"
 	"strings"
 
@@ -26,10 +29,10 @@ func (ic *ImageConverter) Name() string {
 }
 
 // imageFormats desteklenen görsel formatları
-var imageFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif"}
+var imageFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}
 
 // imageWriteFormats yazılabilir formatlar (webp decode-only)
-var imageWriteFormats = []string{"png", "jpg", "bmp", "gif", "tif"}
+var imageWriteFormats = []string{"png", "jpg", "bmp", "gif", "tif", "ico"}
 
 func (ic *ImageConverter) SupportedConversions() []ConversionPair {
 	var pairs []ConversionPair
@@ -114,6 +117,8 @@ func (ic *ImageConverter) decodeImage(path string, format string) (image.Image, 
 		img, err = tiff.Decode(f)
 	case "webp":
 		img, err = webp.Decode(f)
+	case "ico":
+		img, err = decodeICO(f)
 	default:
 		// Genel decoder dene
 		img, _, err = image.Decode(f)
@@ -148,6 +153,8 @@ func (ic *ImageConverter) encodeImage(path string, img image.Image, format strin
 		err = bmp.Encode(f, img)
 	case "tif":
 		err = tiff.Encode(f, img, nil)
+	case "ico":
+		err = encodeICO(f, img)
 	default:
 		return fmt.Errorf("desteklenmeyen çıktı formatı: %s", format)
 	}
@@ -156,4 +163,87 @@ func (ic *ImageConverter) encodeImage(path string, img image.Image, format strin
 		return fmt.Errorf("görsel encode hatası (%s): %w", format, err)
 	}
 	return nil
+}
+
+// decodeICO ICO dosyasından ilk görseli okur (PNG veya BMP sub-image)
+func decodeICO(r io.ReadSeeker) (image.Image, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// ICO header: 6 byte (reserved=0, type=1, count)
+	if len(data) < 6 {
+		return nil, fmt.Errorf("geçersiz ICO dosyası")
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if count == 0 {
+		return nil, fmt.Errorf("ICO dosyasında görsel yok")
+	}
+
+	// İlk entry: offset 6, her entry 16 byte
+	if len(data) < 6+16 {
+		return nil, fmt.Errorf("geçersiz ICO entry")
+	}
+	offset := int(binary.LittleEndian.Uint32(data[6+12 : 6+16]))
+	size := int(binary.LittleEndian.Uint32(data[6+8 : 6+12]))
+
+	if offset+size > len(data) {
+		return nil, fmt.Errorf("geçersiz ICO veri aralığı")
+	}
+
+	imgData := data[offset : offset+size]
+
+	// PNG mi BMP mi kontrol et
+	if len(imgData) >= 8 && imgData[0] == 0x89 && imgData[1] == 'P' {
+		return png.Decode(bytes.NewReader(imgData))
+	}
+	// BMP sub-image (DIB header)
+	return bmp.Decode(bytes.NewReader(imgData))
+}
+
+// encodeICO görseli minimal ICO formatında yazar (PNG payload)
+func encodeICO(w io.Writer, img image.Image) error {
+	// Önce PNG'ye encode et
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		return err
+	}
+	pngData := pngBuf.Bytes()
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width > 255 {
+		width = 0 // 0 = 256px in ICO spec
+	}
+	if height > 255 {
+		height = 0
+	}
+
+	// ICO header (6 bytes)
+	header := make([]byte, 6)
+	binary.LittleEndian.PutUint16(header[0:2], 0) // Reserved
+	binary.LittleEndian.PutUint16(header[2:4], 1) // Type: ICO
+	binary.LittleEndian.PutUint16(header[4:6], 1) // Count: 1
+
+	// Directory entry (16 bytes)
+	entry := make([]byte, 16)
+	entry[0] = byte(width)
+	entry[1] = byte(height)
+	entry[2] = 0                                                     // Color palette
+	entry[3] = 0                                                     // Reserved
+	binary.LittleEndian.PutUint16(entry[4:6], 1)                     // Color planes
+	binary.LittleEndian.PutUint16(entry[6:8], 32)                    // Bits per pixel
+	binary.LittleEndian.PutUint32(entry[8:12], uint32(len(pngData))) // Size
+	binary.LittleEndian.PutUint32(entry[12:16], 22)                  // Offset (6 + 16 = 22)
+
+	if _, err := w.Write(header); err != nil {
+		return err
+	}
+	if _, err := w.Write(entry); err != nil {
+		return err
+	}
+	_, err := w.Write(pngData)
+	return err
 }

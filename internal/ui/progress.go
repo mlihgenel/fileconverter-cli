@@ -39,7 +39,8 @@ const (
 // PrintBanner uygulama başlığını yazdırır
 func PrintBanner() {
 	banner := `
-` + Cyan + Bold + `  ╔═══════════════════════════════════════════════╗
+` + Cyan + Bold + `
+  ╔═══════════════════════════════════════════════╗
   ║        FileConverter CLI  v1.0.0              ║
   ║   Yerel dosya format dönüştürücü              ║
   ╚═══════════════════════════════════════════════╝` + Reset + `
@@ -216,12 +217,15 @@ func formatDuration(d time.Duration) string {
 func PrintFormatCategory(format string) string {
 	documentFormats := map[string]bool{
 		"md": true, "html": true, "pdf": true, "docx": true, "txt": true,
+		"odt": true, "rtf": true, "csv": true, "xlsx": true,
 	}
 	audioFormats := map[string]bool{
-		"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true,
+		"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true,
+		"m4a": true, "wma": true, "opus": true, "webm": true,
 	}
 	imageFormats := map[string]bool{
-		"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true,
+		"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true,
+		"tif": true, "ico": true,
 	}
 
 	if documentFormats[format] {
