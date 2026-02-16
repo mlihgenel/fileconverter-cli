@@ -1,4 +1,4 @@
-module github.com/melihgenel/fileconverter
+module github.com/melihgenel/fileconverter-cli
 
 go 1.25.0
 

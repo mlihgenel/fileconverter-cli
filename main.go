@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/melihgenel/fileconverter/cmd"
+	"github.com/melihgenel/fileconverter-cli/cmd"
 )
 
 // Version bilgisi build sırasında enjekte edilir

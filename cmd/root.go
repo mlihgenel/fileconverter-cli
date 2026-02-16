@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	// Converter modüllerini kaydet
-	_ "github.com/melihgenel/fileconverter/internal/converter"
+	_ "github.com/melihgenel/fileconverter-cli/internal/converter"
 )
 
 var (

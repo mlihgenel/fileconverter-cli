@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square" alt="Platform">
-  <a href="https://goreportcard.com/report/github.com/melihgenel/fileconverter"><img src="https://goreportcard.com/badge/github.com/melihgenel/fileconverter?style=flat-square" alt="Go Report Card"></a>
+  <a href="https://goreportcard.com/report/github.com/melihgenel/fileconverter-cli"><img src="https://goreportcard.com/badge/github.com/melihgenel/fileconverter-cli?style=flat-square" alt="Go Report Card"></a>
 </p>
 
 ---
@@ -36,7 +36,7 @@ Günümüzde dosya dönüştürmek için kullanılan çoğu çevrimiçi araç, d
 Eğer sisteminizde Go kurulu ise, tek komutla kurabilirsiniz:
 
 ```bash
-go install github.com/melihgenel/fileconverter@latest
+go install github.com/melihgenel/fileconverter-cli@latest
 ```
 
 ### Yöntem 2: Kaynaktan Derleme
@@ -44,7 +44,7 @@ go install github.com/melihgenel/fileconverter@latest
 Projeyi klonlayıp kendiniz derleyebilirsiniz:
 
 ```bash
-git clone https://github.com/melihgenel/fileconverter.git
+git clone https://github.com/melihgenel/fileconverter-cli.git
 cd fileconverter
 go build -o fileconverter .
 ```
