@@ -147,6 +147,7 @@ const (
 	stateSettingsBrowser
 	stateMissingDep
 	stateMissingDepInstalling
+	stateBatchBrowser
 )
 
 // ========================================
@@ -471,6 +472,15 @@ func (m interactiveModel) getMaxCursor() int {
 		return 1
 	case stateSettingsBrowser:
 		return len(m.settingsBrowserItems) // +1 for "Bu dizini seç" button
+	case stateBatchBrowser:
+		// Klasör sayısı + 1 ("Dönüştür" butonu)
+		dirCount := 0
+		for _, item := range m.browserItems {
+			if item.isDir {
+				dirCount++
+			}
+		}
+		return dirCount // dirCount = son klasör indexı + 1 (dönüştür butonu)
 	default:
 		return len(m.choices) - 1
 	}
@@ -522,6 +532,8 @@ func (m interactiveModel) View() string {
 		return m.viewMissingDep()
 	case stateMissingDepInstalling:
 		return m.viewMissingDepInstalling()
+	case stateBatchBrowser:
+		return m.viewBatchBrowser()
 	default:
 		return ""
 	}
@@ -878,9 +890,9 @@ func (m interactiveModel) viewFormats() string {
 
 	pairs := converter.GetAllConversions()
 
-	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true}
-	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true}
-	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true}
+	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true, "odt": true, "rtf": true, "csv": true}
+	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true, "opus": true, "webm": true}
+	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true, "ico": true}
 
 	// Belge formatları
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  📄 Belge Formatları"))
@@ -1041,7 +1053,7 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 
 	case stateBatchSelectTargetFormat:
 		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
-		// Batch için bağımlılık kontrolü
+		// Bağımlılık kontrolü
 		if depName, toolName := m.checkRequiredDep(); depName != "" {
 			m.missingDepName = depName
 			m.missingDepToolName = toolName
@@ -1051,6 +1063,29 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			m.cursor = 0
 			return m, nil
 		}
+		// Batch dizin tarayıcısına yönlendir
+		m.browserDir = m.defaultOutput
+		m.loadBrowserItems()
+		m.state = stateBatchBrowser
+		m.cursor = 0
+		return m, nil
+
+	case stateBatchBrowser:
+		// Klasör listesinden sayı al
+		dirItems := []browserEntry{}
+		for _, item := range m.browserItems {
+			if item.isDir {
+				dirItems = append(dirItems, item)
+			}
+		}
+		if m.cursor < len(dirItems) {
+			// Klasöre gir
+			m.browserDir = dirItems[m.cursor].path
+			m.loadBrowserItems()
+			m.cursor = 0
+			return m, nil
+		}
+		// "Dönüştür" butonu
 		m.state = stateBatchConverting
 		return m, m.doBatchConvert()
 
@@ -1156,6 +1191,8 @@ func (m interactiveModel) goBack() interactiveModel {
 		return m.goToCategorySelect(true)
 	case stateBatchSelectTargetFormat:
 		return m.goToSourceFormatSelect(true)
+	case stateBatchBrowser:
+		return m.goToTargetFormatSelect(true)
 	case stateConvertDone, stateBatchDone, stateFormats:
 		return m.goToMainMenu()
 	case stateSettings:
@@ -1334,16 +1371,19 @@ func (m interactiveModel) doConvert() tea.Cmd {
 }
 
 func (m interactiveModel) doBatchConvert() tea.Cmd {
+	scanDir := m.browserDir
+	if scanDir == "" {
+		scanDir = m.defaultOutput
+	}
 	return func() tea.Msg {
 		start := time.Now()
-		cwd, _ := os.Getwd()
 
 		ext := "." + m.sourceFormat
 		var files []string
-		entries, _ := os.ReadDir(cwd)
+		entries, _ := os.ReadDir(scanDir)
 		for _, e := range entries {
 			if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ext {
-				files = append(files, filepath.Join(cwd, e.Name()))
+				files = append(files, filepath.Join(scanDir, e.Name()))
 			}
 		}
 
@@ -1750,6 +1790,79 @@ func (m interactiveModel) viewMissingDepInstalling() string {
 
 	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(
 		"  Kurulum tamamlandığında dönüşüm otomatik başlayacak."))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// viewBatchBrowser toplu dönüşüm için dizin seçici
+func (m interactiveModel) viewBatchBrowser() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+
+	// Breadcrumb
+	cat := categories[m.selectedCategory]
+	crumb := fmt.Sprintf("  %s %s › %s → %s  (Toplu)",
+		cat.Icon, cat.Name,
+		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
+		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
+	b.WriteString(breadcrumbStyle.Render(crumb))
+	b.WriteString("\n\n")
+
+	b.WriteString(menuTitleStyle.Render(" 📦 Kaynak Dizin Seçin "))
+	b.WriteString("\n")
+
+	// Mevcut dizin
+	shortDir := shortenPath(m.browserDir)
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 %s", shortDir)))
+	b.WriteString("\n\n")
+
+	// Eşleşen dosya sayısı
+	fileCount := 0
+	for _, item := range m.browserItems {
+		if !item.isDir {
+			fileCount++
+		}
+	}
+
+	if fileCount > 0 {
+		b.WriteString(successStyle.Render(fmt.Sprintf("  ✅ Bu dizinde %d adet .%s dosyası bulundu", fileCount, m.sourceFormat)))
+	} else {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ⚠ Bu dizinde .%s dosyası bulunamadı", m.sourceFormat)))
+	}
+	b.WriteString("\n\n")
+
+	// Klasörler (gezinme)
+	dirIdx := 0
+	for _, item := range m.browserItems {
+		if !item.isDir {
+			continue
+		}
+		if dirIdx == m.cursor {
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ 📁 %s/", item.name)))
+		} else {
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  📁 %s/", folderStyle.Render(item.name))))
+		}
+		b.WriteString("\n")
+		dirIdx++
+	}
+
+	// "Dönüştür" butonu
+	b.WriteString("\n")
+	if m.cursor == dirIdx {
+		btn := fmt.Sprintf("▸ 🚀 Bu dizindeki %d dosyayı dönüştür", fileCount)
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("  " + btn))
+	} else {
+		btn := fmt.Sprintf("  🚀 Bu dizindeki %d dosyayı dönüştür", fileCount)
+		b.WriteString(dimStyle.Render("  " + btn))
+	}
+	b.WriteString("\n")
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç/Gir  •  Esc Geri"))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Çıktı: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
 
 	return b.String()
