@@ -1,56 +1,47 @@
 # FileConverter CLI
 
 <p align="center">
-  <b>Dosyalarınızı yerel ortamda güvenli bir şekilde dönüştürün.</b><br>
-  Belge, ses ve görsel dosyalarını internet'e yüklemeden, tamamen yerel olarak farklı formatlara dönüştürün.
+  <img src="assets/mainmenu.png" alt="FileConverter CLI Arayüzü" width="700">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
+  <b>Dosyalarınızı yerel ortamda güvenli, hızlı ve kolay bir şekilde dönüştürün.</b><br>
+  İnternet bağlantısı gerektirmez. Verileriniz bilgisayarınızdan asla çıkmaz.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square" alt="Platform">
+  <a href="https://goreportcard.com/report/github.com/melihgenel/fileconverter"><img src="https://goreportcard.com/badge/github.com/melihgenel/fileconverter?style=flat-square" alt="Go Report Card"></a>
 </p>
 
 ---
 
-## ✨ Özellikler
+## 🎯 Neden FileConverter?
 
-- 🔒 **%100 Yerel** — Dosyalarınız hiçbir zaman internet'e yüklenmez
-- ⚡ **Hızlı** — Go ile yazılmış, optimize edilmiş performans
-- 📦 **Toplu Dönüşüm** — Worker pool ile paralel batch dönüşüm
-- 📄 **Belge Formatları** — MD, HTML, PDF, DOCX, TXT
-- 🎵 **Ses Formatları** — MP3, WAV, OGG, FLAC, AAC, M4A, WMA
-- 🖼️ **Görsel Formatları** — PNG, JPEG, WEBP, BMP, GIF, TIFF
-- 🎨 **Kullanıcı Dostu** — Renkli çıktı, progress bar, emoji ikonlar
-- 🐚 **Shell Completion** — Bash, Zsh, Fish, PowerShell desteği
+Günümüzde dosya dönüştürmek için kullanılan çoğu çevrimiçi araç, dosyalarınızı sunucularına yüklemenizi gerektirir. **FileConverter**, bu işlemi tamamen kendi bilgisayarınızda yaparak gizliliğinizi ve güvenliğinizi ön planda tutar.
 
-## 📋 Gereksinimler
+- **🔒 %100 Gizlilik**: Dosyalarınız hiçbir zaman internet'e yüklenmez. Tüm işlem yerel işlemcinizde gerçekleşir.
+- **✨ İnteraktif Arayüz**: Karışık komutlar ezberlemenize gerek yok. Ok tuşları ile gezinebileceğiniz modern bir TUI (Terminal User Interface) sunar.
+- **⚡ Yüksek Performans**: Go dilinin gücü ve paralelleştirme (worker pool) yetenekleri sayesinde binlerce dosyayı saniyeler içinde dönüştürün.
+- **🛠️ Akıllı Bağımlılık Yönetimi**: Sisteminizde gerekli araçların (FFmpeg vb.) olup olmadığını kontrol eder, eksikse sizi yönlendirir.
 
-- **Go 1.21+** (derlemek için)
-- **FFmpeg** (yalnızca ses dönüşümleri için gerekli)
-
-### FFmpeg Kurulumu (opsiyonel)
-
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# Windows (Chocolatey)
-choco install ffmpeg
-```
+---
 
 ## 🚀 Kurulum
 
-### Go ile Kurulum
+### Yöntem 1: Go ile Kurulum (Önerilen)
+
+Eğer sisteminizde Go kurulu ise, tek komutla kurabilirsiniz:
 
 ```bash
 go install github.com/melihgenel/fileconverter@latest
 ```
 
-### Kaynaktan Derleme
+### Yöntem 2: Kaynaktan Derleme
+
+Projeyi klonlayıp kendiniz derleyebilirsiniz:
 
 ```bash
 git clone https://github.com/melihgenel/fileconverter.git
@@ -58,161 +49,127 @@ cd fileconverter
 go build -o fileconverter .
 ```
 
+### Gereksinimler
+
+FileConverter çoğu işlem için Go'nun standart kütüphanelerini kullanır. Ancak bazı özel formatlar için harici araçlara ihtiyaç duyar:
+
+*   **FFmpeg**: Ses ve video dönüşümleri için gereklidir.
+*   **LibreOffice / Pandoc**: (İsteğe bağlı) Bazı gelişmiş belge dönüşümleri için kullanılabilir.
+
+Uygulama, ilk çalıştırıldığında bu araçları kontrol eder ve gerekirse kurulum için size rehberlik eder.
+
+---
+
 ## 📖 Kullanım
 
-### Tekli Dönüşüm
+### 1. İnteraktif Mod (TUI)
+
+Hiçbir parametre vermeden çalıştırdığınızda, kullanıcı dostu interaktif arayüz açılır:
 
 ```bash
-# Markdown → PDF
-fileconverter convert README.md --to pdf
-
-# Markdown → HTML
-fileconverter convert belge.md --to html
-
-# Markdown → DOCX
-fileconverter convert rapor.md --to docx
-
-# PDF → Plain Text
-fileconverter convert dosya.pdf --to txt
-
-# Görsel dönüşüm (kalite ayarı ile)
-fileconverter convert resim.png --to jpg --quality 90
-
-# Ses dönüşüm
-fileconverter convert muzik.mp3 --to wav
-
-# Çıktı dizini belirtme
-fileconverter convert dosya.md --to pdf --output ./cikti/
-
-# Çıktı dosya adı belirtme
-fileconverter convert dosya.md --to pdf --name sonuc
+fileconverter
 ```
 
-### Toplu Dönüşüm (Batch)
+Bu modda:
+*   Dosya veya klasör seçimi yapabilir,
+*   Dönüştürmek istediğiniz formatı menüden seçebilir,
+*   İşlem durumunu canlı progress bar ile takip edebilirsiniz.
+
+### 2. Hızlı Komutlar (CLI)
+
+Otomasyon veya hızlı işlemler için komut satırı argümanlarını kullanabilirsiniz.
+
+#### Tekli Dosya Dönüşümü
 
 ```bash
-# Dizindeki tüm MD dosyalarını PDF'e dönüştür
-fileconverter batch ./belgeler --from md --to pdf
+# Markdown dosyasını PDF'e çevir
+fileconverter convert belge.md --to pdf
 
-# Alt dizinleri de dahil et
-fileconverter batch ./belgeler --from md --to pdf --recursive
+# Resmi PNG formatına çevir
+fileconverter convert icon.jpg --to png
 
-# Çıktıyı farklı dizine yaz
-fileconverter batch ./belgeler --from md --to html --output ./cikti/
-
-# Worker sayısını ayarla
-fileconverter batch ./resimler --from png --to jpg --workers 8
-
-# Kalite ayarı ile
-fileconverter batch ./resimler --from png --to jpg --quality 85
-
-# Ön izleme (dry-run)
-fileconverter batch ./belgeler --from md --to pdf --dry-run
+# Ses dosyasını WAV formatına çevir
+fileconverter convert ses.mp3 --to wav
 ```
 
-### Desteklenen Formatları Görüntüleme
+#### Toplu (Batch) Dönüşüm
+
+Klasördeki tüm dosyaları tek seferde dönüştürün:
 
 ```bash
-# Tüm desteklenen formatlar
-fileconverter formats
+# 'belgeler' klasöründeki tüm .md dosyalarını .html yap
+fileconverter batch ./belgeler --from md --to html
 
-# Belirli bir formattan yapılabilecek dönüşümler
-fileconverter formats --from pdf
+# Alt klasörleri de dahil et (--recursive)
+fileconverter batch ./projeler --from docx --to pdf --recursive
 
-# Belirli bir formata yapılabilecek dönüşümler
-fileconverter formats --to docx
+# Paralel işlem sayısını belirle (Hız artırma)
+fileconverter batch ./fotograflar --from joy --to png --workers 8
 ```
 
-## 📊 Desteklenen Dönüşümler
+---
 
-### 📄 Belge Formatları
+## 📊 Desteklenen Formatlar
 
+FileConverter çok geniş bir format yelpazesini destekler:
+
+### 📄 Belgeler
+| Kaynak | Hedef Formatlar | Notlar |
+|--------|-----------------|--------|
+| **MD** | HTML, PDF, DOCX, TXT | Markdown stili korunur |
+| **DOCX** | PDF, TXT, MD, HTML | |
+| **PDF** | TXT, HTML | Metin çıkarma odaklı |
+| **HTML** | MD, TXT, PDF | |
+| **TXT** | PDF, DOCX, HTML, MD | |
+| **ODT** | PDF, DOCX, TXT | LibreOffice gerektirebilir |
+
+### 🖼️ Görseller
 | Kaynak | Hedef Formatlar |
 |--------|-----------------|
-| MD | HTML, PDF, TXT, DOCX |
-| HTML | TXT, MD |
-| PDF | TXT |
-| DOCX | TXT |
-| TXT | PDF, HTML, DOCX |
+| **PNG, JPEG, WEBP** | PNG, JPG, WEBP, GIF, BMP, TIFF, ICO |
+| **BMP, TIFF, GIF** | PNG, JPG, WEBP, BMP, TIFF |
 
-### 🎵 Ses Formatları (FFmpeg gerektirir)
+### 🎵 Ses (FFmpeg ile)
+Aşağıdaki tüm formatlar arasında çapraz dönüşüm yapılabilir:
+*   MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS
 
-MP3, WAV, OGG, FLAC, AAC, M4A, WMA — tüm formatlar arası çapraz dönüşüm (42 yol)
+---
 
-### 🖼️ Görsel Formatları
-
-| Kaynak | Hedef Formatlar |
-|--------|-----------------|
-| PNG | JPG, BMP, GIF, TIFF |
-| JPEG | PNG, BMP, GIF, TIFF |
-| WEBP | PNG, JPG, BMP, GIF, TIFF |
-| BMP | PNG, JPG, GIF, TIFF |
-| GIF | PNG, JPG, BMP, TIFF |
-| TIFF | PNG, JPG, BMP, GIF |
-
-**Toplam: 18 format, 78 dönüşüm yolu**
-
-## ⚙️ Global Seçenekler
+## ⚙️ Gelişmiş Seçenekler
 
 | Flag | Kısa | Açıklama |
 |------|-------|----------|
-| `--verbose` | `-v` | Detaylı çıktı modu |
-| `--output` | `-o` | Çıktı dizini |
-| `--workers` | `-w` | Paralel worker sayısı (varsayılan: CPU çekirdek sayısı) |
-| `--version` | | Versiyon bilgisi |
-| `--help` | `-h` | Yardım |
+| `--output` | `-o` | Çıktı dosyalarının kaydedileceği dizin |
+| `--verbose` | `-v` | İşlem detaylarını ekrana basar |
+| `--workers` | `-w` | Batch işleminde kullanılacak thread sayısı (Varsayılan: CPU) |
+| `--quality` | `-q` | Görsel kalite ayarı (1-100) |
+| `--dry-run` | | İşlem yapmadan ne olacağını gösterir (Simülasyon) |
+
+---
 
 ## 🏗️ Proje Yapısı
 
 ```
 FileConverter/
-├── main.go                          # Giriş noktası
-├── cmd/
-│   ├── root.go                      # Root komut, global flag'ler
-│   ├── convert.go                   # Tekli dönüşüm
-│   ├── batch.go                     # Toplu dönüşüm
-│   └── formats.go                   # Format listesi
+├── cmd/                 # Komut satırı ve TUI mantığı (Cobra & Bubble Tea)
 ├── internal/
-│   ├── converter/
-│   │   ├── converter.go             # Interface + Registry
-│   │   ├── document.go              # Belge dönüşümleri
-│   │   ├── audio.go                 # Ses dönüşümleri (FFmpeg)
-│   │   └── image.go                 # Görsel dönüşümleri
-│   ├── batch/
-│   │   └── pool.go                  # Worker Pool
-│   └── ui/
-│       └── progress.go              # Progress bar, renkli çıktı
-├── go.mod
-└── go.sum
+│   ├── converter/       # Dönüştürme motoru (Factory Pattern)
+│   ├── batch/           # Paralel işleme (Worker Pool)
+│   ├── config/          # Yapılandırma yönetimi
+│   └── ui/              # Ortak UI bileşenleri
+└── assets/              # Görseller ve kaynak dosyalar
 ```
 
 ## 🤝 Katkıda Bulunma
 
-1. Fork yapın
-2. Feature branch oluşturun (`git checkout -b feature/yeni-format`)
-3. Değişikliklerinizi commit edin (`git commit -m 'Yeni format desteği eklendi'`)
-4. Branch'e push edin (`git push origin feature/yeni-format`)
-5. Pull Request açın
+Katkılarınızı bekliyoruz!
 
-### Yeni Converter Ekleme
-
-`internal/converter/` dizininde yeni bir dosya oluşturun ve `Converter` interface'ini implemente edin:
-
-```go
-package converter
-
-type MyConverter struct{}
-
-func init() {
-    Register(&MyConverter{})
-}
-
-func (c *MyConverter) Name() string { return "My Converter" }
-func (c *MyConverter) SupportsConversion(from, to string) bool { /* ... */ }
-func (c *MyConverter) SupportedConversions() []ConversionPair { /* ... */ }
-func (c *MyConverter) Convert(input, output string, opts Options) error { /* ... */ }
-```
+1.  Bu depoyu Fork'layın.
+2.  Yeni bir özellik için branch oluşturun (`git checkout -b feature/harika-ozellik`).
+3.  Değişikliklerinizi commit yapın (`git commit -m 'Harika özellik eklendi'`).
+4.  Branch'inizi Push edin (`git push origin feature/harika-ozellik`).
+5.  Bir Pull Request oluşturun.
 
 ## 📄 Lisans
 
-MIT License — detaylar için [LICENSE](LICENSE) dosyasına bakın.
+Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır. Özgürce kullanabilir, değiştirebilir ve dağıtabilirsiniz.
