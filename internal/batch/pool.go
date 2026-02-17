@@ -194,8 +194,6 @@ func GetSummary(results []JobResult, totalDuration time.Duration) Summary {
 func CollectFiles(dir string, fromFormat string, recursive bool) ([]string, error) {
 	var files []string
 
-	ext := "." + fromFormat
-
 	walkFn := func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Erişilemeyen dosyaları atla
@@ -209,7 +207,7 @@ func CollectFiles(dir string, fromFormat string, recursive bool) ([]string, erro
 			return nil
 		}
 
-		if filepath.Ext(path) == ext {
+		if converter.HasFormatExtension(path, fromFormat) {
 			files = append(files, path)
 		}
 

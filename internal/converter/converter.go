@@ -3,6 +3,7 @@ package converter
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -146,6 +147,44 @@ func NormalizeFormat(format string) string {
 func DetectFormat(filename string) string {
 	ext := filepath.Ext(filename)
 	return NormalizeFormat(ext)
+}
+
+// FormatExtensions verilen format için eşdeğer dosya uzantılarını döner.
+func FormatExtensions(format string) []string {
+	switch NormalizeFormat(format) {
+	case "jpg":
+		return []string{".jpg", ".jpeg"}
+	case "tif":
+		return []string{".tif", ".tiff"}
+	default:
+		n := NormalizeFormat(format)
+		if n == "" {
+			return nil
+		}
+		return []string{"." + n}
+	}
+}
+
+// HasFormatExtension dosyanın uzantısının verilen format ile eşleşip eşleşmediğini kontrol eder.
+func HasFormatExtension(path string, format string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return false
+	}
+	return slices.Contains(FormatExtensions(format), ext)
+}
+
+// FormatFilterLabel formatın dosya uzantısı etiketini döner (ör. "jpg/jpeg").
+func FormatFilterLabel(format string) string {
+	exts := FormatExtensions(format)
+	if len(exts) == 0 {
+		return NormalizeFormat(format)
+	}
+	labels := make([]string, 0, len(exts))
+	for _, ext := range exts {
+		labels = append(labels, strings.TrimPrefix(ext, "."))
+	}
+	return strings.Join(labels, "/")
 }
 
 // BuildOutputPath çıktı dosya yolunu oluşturur

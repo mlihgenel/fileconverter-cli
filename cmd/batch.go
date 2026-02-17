@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -84,9 +83,8 @@ Worker pool kullanarak paralel dönüşüm yapar.
 			}
 			// Sadece doğru uzantıya sahip dosyaları filtrele
 			var filtered []string
-			ext := "." + fromFormat
 			for _, f := range files {
-				if filepath.Ext(f) == ext {
+				if converter.HasFormatExtension(f, fromFormat) {
 					filtered = append(filtered, f)
 				}
 			}
@@ -94,12 +92,12 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		}
 
 		if len(files) == 0 {
-			ui.PrintWarning(fmt.Sprintf("'%s' formatında dosya bulunamadı.", fromFormat))
+			ui.PrintWarning(fmt.Sprintf("'%s' formatında dosya bulunamadı.", converter.FormatFilterLabel(fromFormat)))
 			return nil
 		}
 
 		// Dosya bilgisi
-		ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), fromFormat))
+		ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), converter.FormatFilterLabel(fromFormat)))
 
 		if verbose {
 			for _, f := range files {

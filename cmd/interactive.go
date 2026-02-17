@@ -686,7 +686,7 @@ func (m interactiveModel) viewFileBrowser() string {
 	b.WriteString("\n\n")
 
 	if len(m.browserItems) == 0 {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("  Bu dizinde .%s dosyası veya klasör bulunamadı!", m.sourceFormat)))
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  Bu dizinde .%s dosyası veya klasör bulunamadı!", converter.FormatFilterLabel(m.sourceFormat))))
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("  Esc Geri"))
 		b.WriteString("\n")
@@ -1302,8 +1302,6 @@ func (m *interactiveModel) loadBrowserItems() {
 		return
 	}
 
-	ext := "." + m.sourceFormat
-
 	// Üst dizin (.. )
 	parent := filepath.Dir(m.browserDir)
 	if parent != m.browserDir {
@@ -1331,7 +1329,7 @@ func (m *interactiveModel) loadBrowserItems() {
 				path:  fullPath,
 				isDir: true,
 			})
-		} else if strings.ToLower(filepath.Ext(e.Name())) == ext {
+		} else if converter.HasFormatExtension(e.Name(), m.sourceFormat) {
 			files = append(files, browserEntry{
 				name:  e.Name(),
 				path:  fullPath,
@@ -1378,11 +1376,10 @@ func (m interactiveModel) doBatchConvert() tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
 
-		ext := "." + m.sourceFormat
 		var files []string
 		entries, _ := os.ReadDir(scanDir)
 		for _, e := range entries {
-			if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ext {
+			if !e.IsDir() && converter.HasFormatExtension(e.Name(), m.sourceFormat) {
 				files = append(files, filepath.Join(scanDir, e.Name()))
 			}
 		}
@@ -1827,9 +1824,9 @@ func (m interactiveModel) viewBatchBrowser() string {
 	}
 
 	if fileCount > 0 {
-		b.WriteString(successStyle.Render(fmt.Sprintf("  ✅ Bu dizinde %d adet .%s dosyası bulundu", fileCount, m.sourceFormat)))
+		b.WriteString(successStyle.Render(fmt.Sprintf("  ✅ Bu dizinde %d adet .%s dosyası bulundu", fileCount, converter.FormatFilterLabel(m.sourceFormat))))
 	} else {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("  ⚠ Bu dizinde .%s dosyası bulunamadı", m.sourceFormat)))
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ⚠ Bu dizinde .%s dosyası bulunamadı", converter.FormatFilterLabel(m.sourceFormat))))
 	}
 	b.WriteString("\n\n")
 
