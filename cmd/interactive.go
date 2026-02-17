@@ -117,6 +117,7 @@ var categories = []formatCategory{
 	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV", Formats: []string{"md", "html", "pdf", "docx", "txt", "odt", "rtf", "csv"}},
 	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}},
 	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}},
+	{Name: "Video Dosyaları", Icon: "🎬", Desc: "MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV (GIF'e dönüştürme dahil)", Formats: []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}},
 }
 
 // ========================================
@@ -893,6 +894,7 @@ func (m interactiveModel) viewFormats() string {
 	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true, "odt": true, "rtf": true, "csv": true}
 	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true, "opus": true, "webm": true}
 	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true, "ico": true}
+	videoFormats := map[string]bool{"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true, "m4v": true, "wmv": true, "flv": true, "gif": true}
 
 	// Belge formatları
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  📄 Belge Formatları"))
@@ -921,6 +923,16 @@ func (m interactiveModel) viewFormats() string {
 	b.WriteString("\n")
 	imgList := sortedKeys(imgFormats)
 	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(imgList, " ↔ ")+"  (çapraz)")))
+
+	// Video
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  🎬 Video Formatları"))
+	if !converter.IsFFmpegAvailable() {
+		b.WriteString(errorStyle.Render("  ⚠ FFmpeg gerekli"))
+	}
+	b.WriteString("\n")
+	videoList := sortedKeys(videoFormats)
+	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(videoList, " ↔ ")+"  (GIF dahil)")))
 
 	b.WriteString("\n")
 	b.WriteString(infoStyle.Render(fmt.Sprintf("  Toplam: %d dönüşüm yolu", len(pairs))))
@@ -1559,6 +1571,13 @@ func (m interactiveModel) checkRequiredDep() (string, string) {
 
 	// Ses dönüşümü → FFmpeg
 	if cat.Name == "Ses Dosyaları" {
+		if !converter.IsFFmpegAvailable() {
+			return "FFmpeg", "ffmpeg"
+		}
+	}
+
+	// Video dönüşümü → FFmpeg
+	if cat.Name == "Video Dosyaları" {
 		if !converter.IsFFmpegAvailable() {
 			return "FFmpeg", "ffmpeg"
 		}

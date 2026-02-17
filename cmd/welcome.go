@@ -51,6 +51,7 @@ var welcomeDescLines = []string{
 	"     📄  Belge Dönüşümü   — MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV",
 	"     🎵  Ses Dönüşümü     — MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS",
 	"     🖼️   Görsel Dönüşümü  — PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO",
+	"     🎬  Video Dönüşümü   — MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF",
 	"",
 	"  ⚡ Toplu dönüşüm ile bir dizindeki tüm dosyaları aynı anda",
 	"     dönüştürebilirsiniz.",

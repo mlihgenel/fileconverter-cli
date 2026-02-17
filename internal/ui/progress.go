@@ -30,6 +30,7 @@ const (
 	IconFile    = "📄"
 	IconAudio   = "🎵"
 	IconImage   = "🖼️ "
+	IconVideo   = "🎬"
 	IconBatch   = "📦"
 	IconDone    = "🎉"
 	IconTime    = "⏱️ "
@@ -227,6 +228,10 @@ func PrintFormatCategory(format string) string {
 		"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true,
 		"tif": true, "ico": true,
 	}
+	videoFormats := map[string]bool{
+		"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true,
+		"m4v": true, "wmv": true, "flv": true,
+	}
 
 	if documentFormats[format] {
 		return IconFile
@@ -236,6 +241,9 @@ func PrintFormatCategory(format string) string {
 	}
 	if imageFormats[format] {
 		return IconImage
+	}
+	if videoFormats[format] {
+		return IconVideo
 	}
 	return IconFile
 }

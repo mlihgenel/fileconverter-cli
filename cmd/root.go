@@ -33,18 +33,20 @@ var rootCmd = &cobra.Command{
 	Short: "File Converter CLI - yerel dosya format donusturucu",
 	Long: `File Converter CLI — Dosyalarınızı yerel ortamda güvenli bir şekilde dönüştürün.
 
-Belge, ses ve görsel dosyalarını internet'e yüklemeden, tamamen yerel
+Belge, ses, görsel ve video dosyalarını internet'e yüklemeden, tamamen yerel
 olarak farklı formatlara dönüştürmenizi sağlar.
 
 Desteklenen kategoriler:
   📄 Belgeler:  MD, HTML, PDF, DOCX, TXT
   🎵 Ses:       MP3, WAV, OGG, FLAC, AAC, M4A, WMA  (FFmpeg gerektirir)
   🖼️  Görseller: PNG, JPEG, WEBP, BMP, GIF, TIFF
+  🎬 Videolar:  MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF  (FFmpeg gerektirir)
 
 Örnekler:
   fileconverter-cli convert dosya.md --to pdf
   fileconverter-cli convert muzik.mp3 --to wav
   fileconverter-cli convert resim.png --to jpg --quality 90
+  fileconverter-cli convert klip.mp4 --to gif --quality 80
   fileconverter-cli batch ./belgeler --from md --to pdf
   fileconverter-cli formats`,
 	Version: appVersion,

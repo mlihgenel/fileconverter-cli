@@ -30,6 +30,7 @@ Worker pool kullanarak paralel dönüşüm yapar.
   fileconverter-cli batch ./belgeler --from md --to pdf
   fileconverter-cli batch ./belgeler --from md --to pdf --recursive
   fileconverter-cli batch ./muzikler --from mp3 --to wav --workers 8
+  fileconverter-cli batch ./videolar --from mp4 --to gif --quality 80
   fileconverter-cli batch "*.png" --to jpg --quality 85
   fileconverter-cli batch ./resimler --from png --to jpg --dry-run
   fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/`,

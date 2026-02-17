@@ -27,6 +27,7 @@ var convertCmd = &cobra.Command{
   fileconverter-cli convert belge.md --to html
   fileconverter-cli convert muzik.mp3 --to wav --quality 80
   fileconverter-cli convert resim.png --to jpg --quality 90 --output ./cikti/
+  fileconverter-cli convert video.mp4 --to gif --quality 80
   fileconverter-cli convert dosya.pdf --to txt --name cikti_adi`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

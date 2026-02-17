@@ -47,6 +47,7 @@ func showAllFormats() error {
 	docPairs := filterByCategory(pairs, "document")
 	audioPairs := filterByCategory(pairs, "audio")
 	imgPairs := filterByCategory(pairs, "image")
+	videoPairs := filterByCategory(pairs, "video")
 
 	fmt.Println()
 	fmt.Printf("  %s %s%sDesteklenen Dönüşümler%s\n", "📋", ui.Bold, ui.Cyan, ui.Reset)
@@ -71,6 +72,16 @@ func showAllFormats() error {
 	if len(imgPairs) > 0 {
 		fmt.Printf("  %s %sGörsel Formatları%s\n", ui.IconImage, ui.Bold, ui.Reset)
 		printPairsTable(imgPairs)
+		fmt.Println()
+	}
+
+	if len(videoPairs) > 0 {
+		fmt.Printf("  %s %sVideo Formatları%s (FFmpeg gerektirir)\n", ui.IconVideo, ui.Bold, ui.Reset)
+		if !converter.IsFFmpegAvailable() {
+			ui.PrintWarning("FFmpeg kurulu değil! Video dönüşümleri çalışmaz.")
+			fmt.Printf("    Kurulum: %sbrew install ffmpeg%s (macOS)\n", ui.Yellow, ui.Reset)
+		}
+		printPairsTable(videoPairs)
 		fmt.Println()
 	}
 
@@ -149,8 +160,10 @@ type ConversionPairSort = converter.ConversionPair
 
 func filterByCategory(pairs []converter.ConversionPair, category string) []ConversionPairSort {
 	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true}
-	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true}
+	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true, "opus": true, "webm": true}
 	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true}
+	videoInputFormats := map[string]bool{"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true, "m4v": true, "wmv": true, "flv": true}
+	videoOutputFormats := map[string]bool{"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true, "m4v": true, "wmv": true, "flv": true, "gif": true}
 
 	var filtered []ConversionPairSort
 	for _, p := range pairs {
@@ -165,6 +178,10 @@ func filterByCategory(pairs []converter.ConversionPair, category string) []Conve
 			}
 		case "image":
 			if imgFormats[p.From] {
+				filtered = append(filtered, p)
+			}
+		case "video":
+			if videoInputFormats[p.From] && videoOutputFormats[p.To] {
 				filtered = append(filtered, p)
 			}
 		}
