@@ -23,11 +23,11 @@ var convertCmd = &cobra.Command{
 	Long: `Bir dosyayı belirtilen formata dönüştürür.
 
 Örnekler:
-  fileconverter convert README.md --to pdf
-  fileconverter convert belge.md --to html
-  fileconverter convert muzik.mp3 --to wav --quality 80
-  fileconverter convert resim.png --to jpg --quality 90 --output ./cikti/
-  fileconverter convert dosya.pdf --to txt --name cikti_adi`,
+  fileconverter-cli convert README.md --to pdf
+  fileconverter-cli convert belge.md --to html
+  fileconverter-cli convert muzik.mp3 --to wav --quality 80
+  fileconverter-cli convert resim.png --to jpg --quality 90 --output ./cikti/
+  fileconverter-cli convert dosya.pdf --to txt --name cikti_adi`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFile := args[0]
@@ -62,7 +62,7 @@ var convertCmd = &cobra.Command{
 		conv, err := converter.FindConverter(fromFormat, targetFormat)
 		if err != nil {
 			ui.PrintError(err.Error())
-			ui.PrintInfo(fmt.Sprintf("Desteklenen dönüşümleri görmek için: fileconverter formats --from %s", fromFormat))
+			ui.PrintInfo(fmt.Sprintf("Desteklenen dönüşümleri görmek için: fileconverter-cli formats --from %s", fromFormat))
 			return err
 		}
 

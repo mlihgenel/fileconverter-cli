@@ -27,12 +27,12 @@ var batchCmd = &cobra.Command{
 Worker pool kullanarak paralel dönüşüm yapar.
 
 Örnekler:
-  fileconverter batch ./belgeler --from md --to pdf
-  fileconverter batch ./belgeler --from md --to pdf --recursive
-  fileconverter batch ./muzikler --from mp3 --to wav --workers 8
-  fileconverter batch "*.png" --to jpg --quality 85
-  fileconverter batch ./resimler --from png --to jpg --dry-run
-  fileconverter batch ./belgeler --from md --to html --output ./cikti/`,
+  fileconverter-cli batch ./belgeler --from md --to pdf
+  fileconverter-cli batch ./belgeler --from md --to pdf --recursive
+  fileconverter-cli batch ./muzikler --from mp3 --to wav --workers 8
+  fileconverter-cli batch "*.png" --to jpg --quality 85
+  fileconverter-cli batch ./resimler --from png --to jpg --dry-run
+  fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		source := args[0]

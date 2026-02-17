@@ -22,9 +22,9 @@ var formatsCmd = &cobra.Command{
 	Long: `Tüm desteklenen dosya formatlarını ve aralarındaki dönüşüm yollarını gösterir.
 
 Örnekler:
-  fileconverter formats
-  fileconverter formats --from pdf
-  fileconverter formats --to docx`,
+  fileconverter-cli formats
+  fileconverter-cli formats --from pdf
+  fileconverter-cli formats --to docx`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if formatsFrom != "" {
 			return showConversionsFrom(formatsFrom)

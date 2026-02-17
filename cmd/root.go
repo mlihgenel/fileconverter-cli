@@ -29,9 +29,9 @@ func SetVersionInfo(version, commit, date string) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "fileconverter",
-	Short: "Yerel dosya format dönüştürücü",
-	Long: `FileConverter — Dosyalarınızı yerel ortamda güvenli bir şekilde dönüştürün.
+	Use:   "fileconverter-cli",
+	Short: "File Converter CLI - yerel dosya format donusturucu",
+	Long: `File Converter CLI — Dosyalarınızı yerel ortamda güvenli bir şekilde dönüştürün.
 
 Belge, ses ve görsel dosyalarını internet'e yüklemeden, tamamen yerel
 olarak farklı formatlara dönüştürmenizi sağlar.
@@ -42,11 +42,11 @@ Desteklenen kategoriler:
   🖼️  Görseller: PNG, JPEG, WEBP, BMP, GIF, TIFF
 
 Örnekler:
-  fileconverter convert dosya.md --to pdf
-  fileconverter convert muzik.mp3 --to wav
-  fileconverter convert resim.png --to jpg --quality 90
-  fileconverter batch ./belgeler --from md --to pdf
-  fileconverter formats`,
+  fileconverter-cli convert dosya.md --to pdf
+  fileconverter-cli convert muzik.mp3 --to wav
+  fileconverter-cli convert resim.png --to jpg --quality 90
+  fileconverter-cli batch ./belgeler --from md --to pdf
+  fileconverter-cli formats`,
 	Version: appVersion,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Argümansız çalıştırıldığında interaktif mod başlat
