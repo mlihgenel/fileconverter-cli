@@ -6,9 +6,8 @@ import (
 	"github.com/mlihgenel/fileconverter-cli/cmd"
 )
 
-// Version bilgisi build sırasında enjekte edilir
 var (
-	version = "dev"
+	version = "1.0.0"
 	commit  = "none"
 	date    = "unknown"
 )

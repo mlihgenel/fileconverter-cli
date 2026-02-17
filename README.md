@@ -1,215 +1,292 @@
-# FileConverter CLI
+# File Converter CLI
 
 <p align="center">
-  <img src="assets/mainmenu.png" alt="FileConverter CLI Arayüzü" width="700">
+  <img src="assets/fileconverter.gif" alt="File Converter CLI Arayüzü" width="800">
+</p> 
+
+
+
+<p align="center">
+  Belgeleri, görselleri, sesleri ve videoları tamamen yerel ortamda dönüştüren modern bir CLI/TUI aracı.
 </p>
 
 <p align="center">
-  <b>Dosyalarınızı yerel ortamda güvenli, hızlı ve kolay bir şekilde dönüştürün.</b><br>
-  İnternet bağlantısı gerektirmez. Verileriniz bilgisayarınızdan asla çıkmaz.
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square" alt="Platform">
   <a href="https://goreportcard.com/report/github.com/mlihgenel/fileconverter-cli"><img src="https://goreportcard.com/badge/github.com/mlihgenel/fileconverter-cli?style=flat-square" alt="Go Report Card"></a>
 </p>
 
----
+## İçindekiler
+- [Genel Bakış](#genel-bakış)
+- [Özellikler](#özellikler)
+- [Kurulum](#kurulum)
+- [Hızlı Başlangıç](#hızlı-başlangıç)
+- [Komut Referansı](#komut-referansı)
+- [Flag Referansı](#flag-referansı)
+- [Desteklenen Formatlar](#desteklenen-formatlar)
+- [Harici Bağımlılıklar](#harici-bağımlılıklar)
+- [Yapılandırma](#yapılandırma)
+- [Sorun Giderme](#sorun-giderme)
+- [Geliştirme](#geliştirme)
+- [Proje Yapısı](#proje-yapısı)
+- [Katkı](#katkı)
+- [Lisans](#lisans)
 
-## 🎯 Neden FileConverter?
+## Genel Bakış
+File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yükleme yapmadan yerel makinede gerçekleştiren bir komut satırı uygulamasıdır.
 
-Günümüzde dosya dönüştürmek için kullanılan çoğu çevrimiçi araç, dosyalarınızı sunucularına yüklemenizi gerektirir. **FileConverter**, bu işlemi tamamen kendi bilgisayarınızda yaparak gizliliğinizi ve güvenliğinizi ön planda tutar.
+- Gizlilik odaklıdır: dosyalar cihazdan çıkmaz.
+- İki kullanım modu sunar: CLI (otomasyon/script) ve interaktif TUI (menü tabanlı).
 
-- **🔒 %100 Gizlilik**: Dosyalarınız hiçbir zaman internet'e yüklenmez. Tüm işlem yerel işlemcinizde gerçekleşir.
-- **✨ İnteraktif Arayüz**: Karışık komutlar ezberlemenize gerek yok. Ok tuşları ile gezinebileceğiniz modern bir TUI (Terminal User Interface) sunar.
-- **⚡ Yüksek Performans**: Go dilinin gücü ve paralelleştirme (worker pool) yetenekleri sayesinde binlerce dosyayı saniyeler içinde dönüştürün.
-- **🛠️ Akıllı Bağımlılık Yönetimi**: Sisteminizde gerekli araçların (FFmpeg vb.) olup olmadığını kontrol eder, eksikse sizi yönlendirir.
+## Özellikler
+- Belge, görsel, ses ve video dönüşümleri.
+- `mp4 -> gif` dahil video dönüşümü.
+- Batch dönüşüm (dizin veya glob pattern).
+- Paralel işleme (`--workers`) ile yüksek performans.
+- Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
+- Harici bağımlılık kontrolü (FFmpeg, LibreOffice, Pandoc).
+- Format alias desteği (`jpeg -> jpg`, `tiff -> tif`, `markdown -> md`).
 
----
+## Kurulum
 
-## 🚀 Kurulum
-
-### Yöntem 1: Go ile Kurulum (Önerilen)
-
-Eğer sisteminizde Go kurulu ise, tek komutla kurabilirsiniz:
-
+### 1. Go ile kurulum (önerilen)
 ```bash
 go install github.com/mlihgenel/fileconverter-cli@latest
 ```
 
-> **Önemli Not:** Komut çalışmazsa (`command not found`), Go bin klasörünün yolunuza (PATH) ekli olduğundan emin olun:
-> ```bash
-> export PATH=$PATH:$(go env GOPATH)/bin
-> ```
+Kurulum sonrası herhangi bir dizinden çalıştırabilmek için binary yolunun `PATH` içinde olması gerekir.
+`go env GOBIN` doluysa o dizini, boşsa `$(go env GOPATH)/bin` dizinini `PATH` içine ekleyin.
 
-### Yöntem 2: Kaynaktan Derleme
+### 2. PATH ayarı (herhangi bir dizinden çalıştırmak için)
 
-Projeyi klonlayıp kendiniz derleyebilirsiniz:
-
+#### macOS / Linux (zsh veya bash)
 ```bash
-git clone https://github.com/mlihgenel/fileconverter-cli.git
-cd fileconverter
-go build -o fileconverter .
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-> **Not:** Kaynaktan derlediyseniz ve `GOPATH/bin` yolunda değilseniz, aşağıdaki komutları başına `./` ekleyerek çalıştırmalısınız (örneğin `./fileconverter`).
+`bash` kullanıyorsanız `~/.bashrc` veya `~/.bash_profile` dosyasına ekleyin.
 
-### Gereksinimler
+#### Windows (PowerShell)
+```powershell
+$gopath = go env GOPATH
+setx PATH "$env:PATH;$gopath\bin"
+```
 
-FileConverter çoğu işlem için Go'nun standart kütüphanelerini kullanır. Ancak bazı özel formatlar için harici araçlara ihtiyaç duyar:
+Ardından yeni bir terminal açın.
 
-*   **FFmpeg**: Ses ve video dönüşümleri için gereklidir.
-*   **LibreOffice / Pandoc**: (İsteğe bağlı) Bazı gelişmiş belge dönüşümleri için kullanılabilir.
+### 3. Kaynaktan derleme
+```bash
+git clone https://github.com/mlihgenel/fileconverter-cli.git
+cd fileconverter-cli
+go build -o fileconverter-cli .
+./fileconverter-cli --help
+```
 
-Uygulama, ilk çalıştırıldığında bu araçları kontrol eder ve gerekirse kurulum için size rehberlik eder.
+Windows için:
+```powershell
+go build -o fileconverter-cli.exe .
+.\fileconverter-cli.exe --help
+```
 
----
+## Hızlı Başlangıç
 
-## 📖 Kullanım
+### Yardım menüsü
+```bash
+fileconverter-cli --help
+fileconverter-cli help convert
+fileconverter-cli help batch
+fileconverter-cli help formats
+```
 
-Kurulum tamamlandıktan sonra terminalden `fileconverter-cli` komutunu kullanarak araca erişebilirsiniz.
-
-### 1. İnteraktif Mod (TUI)
-
-Hiçbir parametre vermeden çalıştırdığınızda, kullanıcı dostu interaktif arayüz açılır:
-
+### İnteraktif mod (TUI)
 ```bash
 fileconverter-cli
 ```
 
-Bu modda:
-*   Dosya veya klasör seçimi yapabilir,
-*   Dönüştürmek istediğiniz formatı menüden seçebilir,
-*   İşlem durumunu canlı progress bar ile takip edebilirsiniz.
-
-### 2. Hızlı Komutlar (CLI)
-
-Otomasyon veya hızlı işlemler için komut satırı argümanlarını kullanabilirsiniz.
-
-#### Tekli Dosya Dönüşümü
-
+### Format sorgulama
 ```bash
-# Markdown dosyasını PDF'e çevir
+fileconverter-cli formats
+fileconverter-cli formats --from mp4
+fileconverter-cli formats --to gif
+```
+
+### Tek dosya dönüşümü
+```bash
+# Belge
 fileconverter-cli convert belge.md --to pdf
 
-# Resmi PNG formatına çevir
-fileconverter-cli convert icon.jpg --to png
+# Görsel
+fileconverter-cli convert fotograf.jpeg --to png
 
-# Ses dosyasını WAV formatına çevir
+# Ses
 fileconverter-cli convert ses.mp3 --to wav
+
+# Video -> GIF
+fileconverter-cli convert klip.mp4 --to gif --quality 80
 ```
 
-#### Toplu (Batch) Dönüşüm
-
-Klasördeki tüm dosyaları tek seferde dönüştürün:
-
+### Toplu (batch) dönüşüm
 ```bash
-# 'belgeler' klasöründeki tüm .md dosyalarını .html yap
-fileconverter-cli batch ./belgeler --from md --to html
+# Dizindeki tüm .md dosyalarını PDF yap
+fileconverter-cli batch ./docs --from md --to pdf
 
-# Alt klasörleri de dahil et (--recursive)
-fileconverter-cli batch ./projeler --from docx --to pdf --recursive
+# Alt dizinlerle birlikte
+fileconverter-cli batch ./videolar --from mp4 --to gif --recursive
 
-# Paralel işlem sayısını belirle (Hız artırma)
-fileconverter-cli batch ./fotograflar --from joy --to png --workers 8
+# Ön izleme (dönüştürmeden planı gösterir)
+fileconverter-cli batch ./resimler --from jpg --to webp --dry-run
+
+# Glob kullanımı
+fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 ```
 
----
+## Komut Referansı
 
-## 📊 Desteklenen Formatlar
+| Komut | Ne yapar | Örnek |
+|---|---|---|
+| `fileconverter-cli` | İnteraktif TUI modunu başlatır | `fileconverter-cli` |
+| `fileconverter-cli convert <dosya>` | Tek dosya dönüşümü | `fileconverter-cli convert input.mp4 --to gif` |
+| `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
+| `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
+| `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
+| `fileconverter-cli help [komut]` | Komut yardımı gösterir | `fileconverter-cli help batch` |
 
-FileConverter çok geniş bir format yelpazesini destekler:
+## Flag Referansı
 
-### 📄 Belgeler
-| Kaynak | Hedef Formatlar | Notlar |
-|--------|-----------------|--------|
-| **MD** | HTML, PDF, DOCX, TXT | Markdown stili korunur |
-| **DOCX** | PDF, TXT, MD, HTML | |
-| **PDF** | TXT, HTML | Metin çıkarma odaklı |
-| **HTML** | MD, TXT, PDF | |
-| **TXT** | PDF, DOCX, HTML, MD | |
-| **ODT** | PDF, DOCX, TXT | LibreOffice gerektirebilir |
-
-### 🖼️ Görseller
-| Kaynak | Hedef Formatlar |
-|--------|-----------------|
-| **PNG, JPEG, WEBP** | PNG, JPG, WEBP, GIF, BMP, TIFF, ICO |
-| **BMP, TIFF, GIF** | PNG, JPG, WEBP, BMP, TIFF |
-
-### 🎵 Ses (FFmpeg ile)
-Aşağıdaki tüm formatlar arasında çapraz dönüşüm yapılabilir:
-*   MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS
-
----
-
-## ⚙️ Gelişmiş Seçenekler
+### Global flag'ler
 
 | Flag | Kısa | Açıklama |
-|------|-------|----------|
-| `--output` | `-o` | Çıktı dosyalarının kaydedileceği dizin |
-| `--verbose` | `-v` | İşlem detaylarını ekrana basar |
-| `--workers` | `-w` | Batch işleminde kullanılacak thread sayısı (Varsayılan: CPU) |
-| `--quality` | `-q` | Görsel kalite ayarı (1-100) |
-| `--dry-run` | | İşlem yapmadan ne olacağını gösterir (Simülasyon) |
+|---|---|---|
+| `--output` | `-o` | Çıktı dizini (varsayılan: kaynak dosya dizini) |
+| `--verbose` | `-v` | Detaylı çıktı |
+| `--workers` | `-w` | Batch modunda paralel worker sayısı |
 
----
+### `convert` flag'leri
 
-## 🏗️ Proje Yapısı
+| Flag | Kısa | Açıklama |
+|---|---|---|
+| `--to` | `-t` | Hedef format (zorunlu) |
+| `--quality` | `-q` | Kalite seviyesi (1-100) |
+| `--name` | `-n` | Çıktı dosya adı (uzantısız) |
 
-Proje, modern Go CLI standartlarına uygun olarak modüler bir yapıda tasarlanmıştır:
+### `batch` flag'leri
 
+| Flag | Kısa | Açıklama |
+|---|---|---|
+| `--from` | `-f` | Kaynak format (zorunlu) |
+| `--to` | `-t` | Hedef format (zorunlu) |
+| `--recursive` | `-r` | Alt dizinleri de tara |
+| `--dry-run` | - | Dönüştürmeden önce planı göster |
+| `--quality` | `-q` | Kalite seviyesi (1-100) |
+
+### `formats` flag'leri
+
+| Flag | Açıklama |
+|---|---|
+| `--from` | Belirli bir kaynaktan gidilebilen hedefleri listeler |
+| `--to` | Belirli bir hedefe gelebilen kaynakları listeler |
+
+## Desteklenen Formatlar
+
+En güncel ve tam matris için:
+```bash
+fileconverter-cli formats
 ```
-FileConverter/
-├── cmd/                 # Komut satırı arayüzü (CLI) mantığı
-│   ├── root.go          # Ana komut ve global flag tanımları
-│   ├── interactive.go   # TUI (Terminal Kullanıcı Arayüzü) mantığı
-│   ├── convert.go       # Tekli dosya dönüştürme komutu
-│   ├── batch.go         # Toplu dönüştürme komutu
-│   └── ...
-├── internal/            # Uygulama iş mantığı (Business Logic)
-│   ├── converter/       # Dönüştürme motoru ve stratejileri (Factory Pattern)
-│   ├── batch/           # Paralel işleme ve worker pool yönetimi
-│   ├── config/          # Yapılandırma ve ayar yönetimi
-│   ├── installer/       # Harici bağımlılık (FFmpeg) kontrolü ve kurulumu
-│   └── ui/              # Ortak UI bileşenleri ve stiller
-├── assets/              # Statik dosyalar ve görseller
-└── main.go              # Uygulama giriş noktası
+
+### Belgeler
+- Kaynak/hedef: `md`, `html`, `pdf`, `docx`, `txt`, `odt`, `rtf`, `csv`
+- Ek: `csv -> xlsx`
+
+### Görseller
+- `png`, `jpg/jpeg`, `webp`, `bmp`, `gif`, `tif/tiff`, `ico`
+
+### Ses (FFmpeg)
+- `mp3`, `wav`, `ogg`, `flac`, `aac`, `m4a`, `wma`, `opus`, `webm`
+
+### Videolar (FFmpeg)
+- Kaynak: `mp4`, `mov`, `mkv`, `avi`, `webm`, `m4v`, `wmv`, `flv`
+- Hedef: yukarıdakiler + `gif`
+
+## Harici Bağımlılıklar
+
+| Araç | Ne zaman gerekir | Not |
+|---|---|---|
+| FFmpeg | Ses ve video dönüşümleri | `mp4 -> gif` dahil |
+| LibreOffice | Bazı belge dönüşümleri (`odt/rtf/xlsx`) | Bazı dönüşümler için fallback kullanılır |
+| Pandoc | Bazı Markdown belge akışları | Opsiyonel, fallback mevcut |
+
+Uygulama interaktif modda eksik araçları kontrol eder ve kurulum için yönlendirir.
+
+## Yapılandırma
+
+- Konfigürasyon dosyası: `~/.fileconverter/config.json`
+- Bu dosyada ilk çalıştırma bilgisi ve varsayılan çıktı dizini tutulur.
+- İnteraktif moddan varsayılan çıktı dizinini değiştirebilirsiniz.
+
+## Sorun Giderme
+
+### `command not found: fileconverter-cli`
+- `PATH` içine `$(go env GOPATH)/bin` ekleyin.
+- Terminali yeniden açın.
+
+### Eski sürüm/eskimiş help çıktısı görünüyor
+```bash
+cd /proje/dizini
+go install .
+which fileconverter-cli
+fileconverter-cli --help
 ```
 
-## 🤝 Katkıda Bulunma
+### Dönüşüm desteklenmiyor hatası
+Önce formatları doğrulayın:
+```bash
+fileconverter-cli formats --from <kaynak>
+fileconverter-cli formats --to <hedef>
+```
 
-FileConverter açık kaynaklı bir projedir ve katkılarınızı memnuniyetle karşılıyoruz. Projeyi geliştirmek için aşağıdaki adımları izleyebilirsiniz:
+### FFmpeg bulunamadı
+macOS:
+```bash
+brew install ffmpeg
+```
+Linux (Debian/Ubuntu):
+```bash
+sudo apt install ffmpeg
+```
 
-### Geliştirme Süreci
+## Geliştirme
+```bash
+git clone https://github.com/mlihgenel/fileconverter-cli.git
+cd fileconverter-cli
+go test ./...
+go run . --help
+```
 
-1.  **Fork Edin**: Bu depoyu (repository) kendi GitHub hesabınıza forklayın.
-2.  **Klonlayın**: Forkladığınız depoyu yerel makinenize indirin.
-    ```bash
-    git clone https://github.com/KULLANICI_ADINIZ/fileconverter-cli.git
-    ```
-3.  **Branch Oluşturun**: Yapacağınız değişiklik için yeni bir dal (branch) açın.
-    ```bash
-    git checkout -b feature/yeni-ozellik
-    # veya
-    git checkout -b fix/hata-duzeltmesi
-    ```
-4.  **Geliştirin**: Kodunuzu yazın ve testlerinizi yapın. Kod standartlarına uyduğunuzdan emin olun.
-5.  **Commitleyin**: Değişikliklerinizi net ve açıklayıcı mesajlarla kaydedin.
-    ```bash
-    git commit -m "feat: yeni format desteği eklendi (XYZ)"
-    ```
-6.  **Push Edin**: Dalınızı GitHub'a gönderin.
-    ```bash
-    git push origin feature/yeni-ozellik
-    ```
-7.  **Pull Request (PR)**: GitHub üzerinden ana depoya (main branch) bir Pull Request gönderin. Açıklamada neyi, neden değiştirdiğinizi belirtin.
+## Proje Yapısı
+```text
+fileconverter-cli/
+├── cmd/                  # Cobra komutları (convert, batch, formats, interactive)
+├── internal/converter/   # Dönüştürme motorları (document, image, audio, video)
+├── internal/batch/       # Worker pool ve batch yürütme
+├── internal/config/      # Uygulama ayarları
+├── internal/installer/   # Bağımlılık kontrol/kurulum yardımcıları
+├── internal/ui/          # Ortak terminal UI yardımcıları
+├── assets/               # README görselleri
+└── main.go               # Uygulama giriş noktası
+```
 
-### Raporlama
+## Katkı
+Katkılar memnuniyetle karşılanır.
 
-Hata bildirimleri ve özellik istekleri için lütfen [Issues](https://github.com/mlihgenel/fileconverter-cli/issues) sayfasını kullanın. Bir sorun bildirirken, hatayı yeniden oluşturmak için gerekli adımları ve ortam bilgilerinizi (OS, Go sürümü vb.) eklemeyi unutmayın.
+1. Repo'yu fork edin.
+2. Yeni branch açın.
+3. Değişiklikleri yapın.
+4. Testleri çalıştırın.
+5. Pull request gönderin.
 
-## 📄 Lisans
+Issue ve öneriler için: [GitHub Issues](https://github.com/mlihgenel/fileconverter-cli/issues)
 
-Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır. Özgürce kullanabilir, değiştirebilir ve dağıtabilirsiniz.
+## Lisans
+Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır.

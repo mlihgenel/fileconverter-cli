@@ -16,7 +16,7 @@ var (
 	outputDir string
 	workers   int
 
-	appVersion = "dev"
+	appVersion = "1.0.0"
 	appCommit  = "none"
 	appDate    = "unknown"
 )
