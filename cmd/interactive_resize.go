@@ -66,7 +66,7 @@ func (m interactiveModel) goToResizeConfig(isBatch bool) interactiveModel {
 		"Hazır ölçü seç (Preset)",
 		"Manuel ölçü gir (Elle)",
 	}
-	m.choiceIcons = []string{"", "", ""}
+	m.choiceIcons = []string{"🚫", "📚", "✍️"}
 	m.choiceDescs = []string{
 		"Orijinal çözünürlük korunur",
 		"Story, square, fullhd gibi hazır ölçüler",
@@ -96,7 +96,7 @@ func (m interactiveModel) goToResizePresetSelect() interactiveModel {
 	m.choiceDescs = make([]string, len(m.resizePresetList))
 	for i, p := range m.resizePresetList {
 		m.choices[i] = fmt.Sprintf("%s (%dx%d)", strings.ToUpper(p.Name), p.Width, p.Height)
-		m.choiceIcons[i] = ""
+		m.choiceIcons[i] = "📐"
 		m.choiceDescs[i] = p.Description
 		if p.Name == m.resizePresetName {
 			m.cursor = i
@@ -124,7 +124,7 @@ func (m interactiveModel) goToResizeManualUnitSelect() interactiveModel {
 	m.state = stateResizeManualUnit
 	m.resizeValidationErr = ""
 	m.choices = []string{"Piksel (px)", "Santimetre (cm)"}
-	m.choiceIcons = []string{"", ""}
+	m.choiceIcons = []string{"🧮", "📏"}
 	m.choiceDescs = []string{
 		"Doğrudan ekran/video çözünürlüğü girilir",
 		"DPI ile piksele çevrilir (örn. baskı iş akışı)",
@@ -155,7 +155,18 @@ func (m interactiveModel) goToResizeModeSelect() interactiveModel {
 
 	for i, mode := range resizeModeOptions {
 		m.choices[i] = mode.Label
-		m.choiceIcons[i] = ""
+		switch mode.Key {
+		case "pad":
+			m.choiceIcons[i] = "⬛"
+		case "fit":
+			m.choiceIcons[i] = "🖼️"
+		case "fill":
+			m.choiceIcons[i] = "✂️"
+		case "stretch":
+			m.choiceIcons[i] = "↔️"
+		default:
+			m.choiceIcons[i] = "⚙️"
+		}
 		m.choiceDescs[i] = mode.Desc
 		if mode.Key == m.resizeModeName {
 			m.cursor = i

@@ -23,18 +23,18 @@ import (
 
 var (
 	// Ana renk paleti
-	primaryColor   = lipgloss.Color("#7C3AED") // Mor
-	secondaryColor = lipgloss.Color("#06B6D4") // Cyan
+	primaryColor   = lipgloss.Color("#334155") // Sade slate
+	secondaryColor = lipgloss.Color("#E2E8F0") // Açık logo tonu
 	accentColor    = lipgloss.Color("#10B981") // Yeşil
 	warningColor   = lipgloss.Color("#F59E0B") // Sarı
 	dangerColor    = lipgloss.Color("#EF4444") // Kırmızı
 	textColor      = lipgloss.Color("#E2E8F0") // Açık gri
-	dimTextColor   = lipgloss.Color("#64748B") // Koyu gri
+	dimTextColor   = lipgloss.Color("#94A3B8") // Koyu gri
 	bgColor        = lipgloss.Color("#0F172A") // Koyu arka plan
 
-	// Gradient renkleri (banner için)
+	// Sade ton geçişi
 	gradientColors = []lipgloss.Color{
-		"#818CF8", "#A78BFA", "#C084FC", "#E879F9", "#F472B6",
+		"#F1F5F9", "#CBD5E1", "#94A3B8", "#64748B", "#94A3B8",
 	}
 
 	// Stiller
@@ -114,10 +114,10 @@ type formatCategory struct {
 }
 
 var categories = []formatCategory{
-	{Name: "Belgeler", Icon: "", Desc: "MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV", Formats: []string{"md", "html", "pdf", "docx", "txt", "odt", "rtf", "csv"}},
-	{Name: "Ses Dosyaları", Icon: "", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}},
-	{Name: "Görseller", Icon: "", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}},
-	{Name: "Video Dosyaları", Icon: "", Desc: "MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV (GIF'e dönüştürme dahil)", Formats: []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}},
+	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV", Formats: []string{"md", "html", "pdf", "docx", "txt", "odt", "rtf", "csv"}},
+	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}},
+	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}},
+	{Name: "Video Dosyaları", Icon: "🎬", Desc: "MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV (GIF'e dönüştürme dahil)", Formats: []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}},
 }
 
 // ========================================
@@ -297,7 +297,7 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Ayarlar",
 			"Çıkış",
 		},
-		choiceIcons: []string{"", "", "", "", "", "", "", ""},
+		choiceIcons: []string{"🔄", "📦", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
 		choiceDescs: []string{
 			"Tek bir dosyayı başka formata dönüştür",
 			"Dizindeki tüm dosyaları toplu dönüştür",
@@ -624,17 +624,18 @@ func (m interactiveModel) View() string {
 func (m interactiveModel) viewMainMenu() string {
 	var b strings.Builder
 
-	// Welcome ekranındaki gradient ASCII art
-	for i, line := range welcomeArt {
-		colorIdx := i % len(welcomeGradient)
-		style := lipgloss.NewStyle().Bold(true).Foreground(welcomeGradient[colorIdx])
-		b.WriteString(style.Render(line))
+	// Ana başlık: ortalı, sade ve şık görünüm.
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#CBD5E1"))
+	for _, raw := range welcomeArt {
+		line := strings.TrimLeft(raw, " ")
+		b.WriteString(centerText(titleStyle.Render(line), m.width))
 		b.WriteString("\n")
 	}
 
 	// Versiyon bilgisi
 	versionLine := fmt.Sprintf("             v%s  •  Yerel & Güvenli Dönüştürücü", appVersion)
-	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(versionLine))
+	version := lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(versionLine)
+	b.WriteString(centerText(version, m.width))
 	b.WriteString("\n")
 
 	b.WriteString("\n")
@@ -698,13 +699,14 @@ func (m interactiveModel) viewSelectCategory(title string) string {
 				MarginLeft(2).
 				Width(50)
 
-			content := fmt.Sprintf("%s\n%s",
+			content := fmt.Sprintf("%s  %s\n%s",
+				cat.Icon,
 				lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(cat.Name),
 				descStyle.Render(cat.Desc))
 
 			b.WriteString(card.Render(content))
 		} else {
-			b.WriteString(normalItemStyle.Render("  " + cat.Name))
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s  %s", cat.Icon, cat.Name)))
 		}
 		b.WriteString("\n")
 	}
@@ -723,7 +725,7 @@ func (m interactiveModel) viewSelectFormat(title string) string {
 
 	// Breadcrumb
 	cat := categories[m.selectedCategory]
-	crumb := fmt.Sprintf("  %s", cat.Name)
+	crumb := fmt.Sprintf("  %s %s", cat.Icon, cat.Name)
 	if m.sourceFormat != "" {
 		crumb += fmt.Sprintf(" › %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)))
 	}
@@ -761,7 +763,8 @@ func (m interactiveModel) viewFileBrowser() string {
 
 	// Breadcrumb
 	cat := categories[m.selectedCategory]
-	crumb := fmt.Sprintf("  %s › %s › %s",
+	crumb := fmt.Sprintf("  %s %s › %s › %s",
+		cat.Icon,
 		cat.Name,
 		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
 		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
@@ -773,7 +776,7 @@ func (m interactiveModel) viewFileBrowser() string {
 
 	// Mevcut dizin
 	shortDir := shortenPath(m.browserDir)
-	b.WriteString(pathStyle.Render(fmt.Sprintf("  Dizin: %s", shortDir)))
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 Dizin: %s", shortDir)))
 	b.WriteString("\n\n")
 
 	if len(m.browserItems) == 0 {
@@ -801,16 +804,16 @@ func (m interactiveModel) viewFileBrowser() string {
 		if item.isDir {
 			// Klasörler
 			if i == m.cursor {
-				b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s/", item.name)))
+				b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ 📁 %s/", item.name)))
 			} else {
-				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s/", folderStyle.Render(item.name))))
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  📁 %s/", folderStyle.Render(item.name))))
 			}
 		} else {
 			// Dosyalar
 			if i == m.cursor {
-				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ %s", item.name)))
+				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ %s %s", cat.Icon, item.name)))
 			} else {
-				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s", item.name)))
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s %s", cat.Icon, item.name)))
 			}
 		}
 		b.WriteString("\n")
@@ -841,7 +844,7 @@ func (m interactiveModel) viewFileBrowser() string {
 	b.WriteString("\n")
 
 	// Çıktı bilgisi
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  Çıktı: %s", shortenPath(m.defaultOutput))))
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Çıktı: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
 	if m.resizeSpec != nil {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("  Boyutlandırma: %s", m.resizeSummary())))
@@ -1349,7 +1352,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 		"Ayarlar",
 		"Çıkış",
 	}
-	m.choiceIcons = []string{"", "", "", "", "", "", "", ""}
+	m.choiceIcons = []string{"🔄", "📦", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
 	m.choiceDescs = []string{
 		"Tek bir dosyayı başka formata dönüştür",
 		"Dizindeki tüm dosyaları toplu dönüştür",
@@ -1447,7 +1450,7 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool) inte
 	for i, catIdx := range m.categoryIndices {
 		cat := categories[catIdx]
 		m.choices[i] = cat.Name
-		m.choiceIcons[i] = ""
+		m.choiceIcons[i] = cat.Icon
 		m.choiceDescs[i] = cat.Desc
 	}
 
@@ -1682,6 +1685,13 @@ func shortenPath(path string) string {
 		return "~" + path[len(home):]
 	}
 	return path
+}
+
+func centerText(text string, width int) string {
+	if width <= 0 || lipgloss.Width(text) >= width {
+		return text
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, text)
 }
 
 func gradientText(text string, colors []lipgloss.Color) string {
@@ -2064,7 +2074,8 @@ func (m interactiveModel) viewBatchBrowser() string {
 
 	// Breadcrumb
 	cat := categories[m.selectedCategory]
-	crumb := fmt.Sprintf("  %s › %s -> %s  (Toplu)",
+	crumb := fmt.Sprintf("  %s %s › %s -> %s  (Toplu)",
+		cat.Icon,
 		cat.Name,
 		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
 		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
@@ -2076,7 +2087,7 @@ func (m interactiveModel) viewBatchBrowser() string {
 
 	// Mevcut dizin
 	shortDir := shortenPath(m.browserDir)
-	b.WriteString(pathStyle.Render(fmt.Sprintf("  Dizin: %s", shortDir)))
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 Dizin: %s", shortDir)))
 	b.WriteString("\n\n")
 
 	// Eşleşen dosya sayısı
@@ -2101,9 +2112,9 @@ func (m interactiveModel) viewBatchBrowser() string {
 			continue
 		}
 		if dirIdx == m.cursor {
-			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ %s/", item.name)))
+			b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ 📁 %s/", item.name)))
 		} else {
-			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s/", folderStyle.Render(item.name))))
+			b.WriteString(normalItemStyle.Render(fmt.Sprintf("  📁 %s/", folderStyle.Render(item.name))))
 		}
 		b.WriteString("\n")
 		dirIdx++
@@ -2112,10 +2123,10 @@ func (m interactiveModel) viewBatchBrowser() string {
 	// "Dönüştür" butonu
 	b.WriteString("\n")
 	if m.cursor == dirIdx {
-		btn := fmt.Sprintf("▸ Bu dizindeki %d dosyayi donustur", fileCount)
+		btn := fmt.Sprintf("▸ 🚀 Bu dizindeki %d dosyayi donustur", fileCount)
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("  " + btn))
 	} else {
-		btn := fmt.Sprintf("  Bu dizindeki %d dosyayi donustur", fileCount)
+		btn := fmt.Sprintf("  🚀 Bu dizindeki %d dosyayi donustur", fileCount)
 		b.WriteString(dimStyle.Render("  " + btn))
 	}
 	b.WriteString("\n")
@@ -2123,7 +2134,7 @@ func (m interactiveModel) viewBatchBrowser() string {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç/Gir  •  Esc Geri"))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  Cikti: %s", shortenPath(m.defaultOutput))))
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Cikti: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
 	if m.resizeSpec != nil {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("  Boyutlandirma: %s", m.resizeSummary())))

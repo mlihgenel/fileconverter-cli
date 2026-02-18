@@ -32,10 +32,16 @@ var welcomeArt = []string{
 	"",
 }
 
-// Geniş gradient renkleri (karşılama için)
+var (
+	welcomePrimaryColor   = lipgloss.Color("#334155")
+	welcomeSecondaryColor = lipgloss.Color("#E2E8F0")
+	welcomeTextColor      = lipgloss.Color("#E2E8F0")
+	welcomeDimColor       = lipgloss.Color("#94A3B8")
+)
+
+// İlk açılış için sade, logo ile uyumlu tonlar
 var welcomeGradient = []lipgloss.Color{
-	"#667EEA", "#764BA2", "#F093FB", "#F5576C", "#4FACFE",
-	"#00F2FE", "#43E97B", "#FA709A", "#FEE140", "#A18CD1",
+	"#F1F5F9", "#E2E8F0", "#CBD5E1", "#94A3B8", "#64748B", "#94A3B8",
 }
 
 // Uygulama tanıtım metni
@@ -63,7 +69,7 @@ var welcomeDescLines = []string{
 // Feature box stili
 var featureBoxStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
-	BorderForeground(lipgloss.Color("#764BA2")).
+	BorderForeground(welcomePrimaryColor).
 	Padding(1, 3).
 	MarginLeft(2).
 	Width(65)
@@ -76,7 +82,12 @@ var featureBoxStyle = lipgloss.NewStyle().
 func (m interactiveModel) viewWelcomeIntro() string {
 	var b strings.Builder
 
-	// Gradient ASCII Art Banner
+	welcomeSkipStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(welcomeSecondaryColor).
+		PaddingLeft(2)
+
+	// Logo renklerinde ASCII banner
 	for i, line := range welcomeArt {
 		if i >= len(welcomeArt) {
 			break
@@ -88,8 +99,8 @@ func (m interactiveModel) viewWelcomeIntro() string {
 	}
 
 	// Versiyon bilgisi
-	versionLine := fmt.Sprintf("             v%s  •  Yerel & Güvenli Dönüştürücü", appVersion)
-	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Italic(true).Render(versionLine))
+	versionLine := fmt.Sprintf("v%s  •  Yerel & Güvenli Dönüştürücü", appVersion)
+	b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Italic(true).Render(versionLine))
 	b.WriteString("\n")
 
 	// Typing animasyonu — metni charIdx'e kadar göster
@@ -98,7 +109,7 @@ func (m interactiveModel) viewWelcomeIntro() string {
 		lineRunes := []rune(line)
 		if totalChars+len(lineRunes) <= m.welcomeCharIdx {
 			// Tam satır göster
-			b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render(line))
+			b.WriteString(lipgloss.NewStyle().Foreground(welcomeTextColor).Render(line))
 			b.WriteString("\n")
 			totalChars += len(lineRunes)
 		} else {
@@ -106,10 +117,10 @@ func (m interactiveModel) viewWelcomeIntro() string {
 			remaining := m.welcomeCharIdx - totalChars
 			if remaining > 0 {
 				partial := string(lineRunes[:remaining])
-				b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render(partial))
+				b.WriteString(lipgloss.NewStyle().Foreground(welcomeTextColor).Render(partial))
 				// Yanıp sönen cursor
 				if m.showCursor {
-					b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("▌"))
+					b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(welcomeSecondaryColor).Render("▌"))
 				}
 			}
 			b.WriteString("\n")
@@ -123,14 +134,25 @@ func (m interactiveModel) viewWelcomeIntro() string {
 		totalDesiredChars += len([]rune(line))
 	}
 
+	b.WriteString("\n")
+	quickSkipText := "  ⏩ Yazıyı hızlı geçmek için Enter'a basın"
+	if m.welcomeCharIdx < totalDesiredChars {
+		if m.showCursor {
+			b.WriteString(welcomeSkipStyle.Render(quickSkipText))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render(quickSkipText))
+		}
+		b.WriteString("\n")
+	}
+
 	if m.welcomeCharIdx >= totalDesiredChars {
 		b.WriteString("\n")
 		// Yanıp sönen devam mesajı
 		continueText := "  ▸ Devam etmek için Enter'a basın"
 		if m.showCursor {
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(continueText))
+			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(welcomeSecondaryColor).Render(continueText))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).Render(continueText))
+			b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render(continueText))
 		}
 		b.WriteString("\n")
 	}
@@ -146,15 +168,27 @@ func (m interactiveModel) viewWelcomeDeps() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#764BA2")).
+		Background(welcomePrimaryColor).
 		Padding(0, 2).
 		MarginBottom(1)
+
+	welcomeSelectedStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(welcomeSecondaryColor).
+		PaddingLeft(2)
+
+	welcomeNormalStyle := lipgloss.NewStyle().
+		Foreground(welcomeTextColor).
+		PaddingLeft(4)
+
+	welcomeDimStyle := lipgloss.NewStyle().
+		Foreground(welcomeDimColor)
 
 	b.WriteString("\n")
 	b.WriteString(titleStyle.Render(" Sistem Kontrolu "))
 	b.WriteString("\n\n")
 
-	b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render(
+	b.WriteString(lipgloss.NewStyle().Foreground(welcomeTextColor).Render(
 		"  Bazı dönüşümler için harici araçlar gereklidir.\n  Durumları kontrol ediliyor...\n"))
 	b.WriteString("\n")
 
@@ -176,7 +210,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 		}
 
 		// Araç ismi
-		nameStyle := lipgloss.NewStyle().Bold(true).Foreground(textColor).Width(15)
+		nameStyle := lipgloss.NewStyle().Bold(true).Foreground(welcomeTextColor).Width(15)
 		line := fmt.Sprintf("  %s %s %s",
 			statusIcon,
 			nameStyle.Render(dep.Name),
@@ -187,7 +221,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 			if len(ver) > 40 {
 				ver = ver[:40] + "…"
 			}
-			line += dimStyle.Render(fmt.Sprintf("  (%s)", ver))
+			line += welcomeDimStyle.Render(fmt.Sprintf("  (%s)", ver))
 		}
 
 		b.WriteString(line)
@@ -205,16 +239,16 @@ func (m interactiveModel) viewWelcomeDeps() string {
 				"  Eksik araclar algilandi"))
 			b.WriteString("\n\n")
 
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  Paket yöneticisi: %s", pm)))
+			b.WriteString(welcomeDimStyle.Render(fmt.Sprintf("  Paket yöneticisi: %s", pm)))
 			b.WriteString("\n\n")
 
 			// Kurulum seçenekleri
 			installOptions := []string{"Eksik araçları otomatik kur", "Atla ve devam et"}
 			for i, opt := range installOptions {
 				if i == m.cursor {
-					b.WriteString(selectedItemStyle.Render(fmt.Sprintf("  ▸ %s", opt)))
+					b.WriteString(welcomeSelectedStyle.Render(fmt.Sprintf("  ▸ %s", opt)))
 				} else {
-					b.WriteString(normalItemStyle.Render(fmt.Sprintf("    %s", opt)))
+					b.WriteString(welcomeNormalStyle.Render(fmt.Sprintf("    %s", opt)))
 				}
 				b.WriteString("\n")
 			}
@@ -227,25 +261,25 @@ func (m interactiveModel) viewWelcomeDeps() string {
 			for _, dep := range m.dependencies {
 				if !dep.Available {
 					info := installer.GetInstallInfo(dep.Name)
-					b.WriteString(dimStyle.Render(fmt.Sprintf("  • %s: %s", dep.Name, info.ManualURL)))
+					b.WriteString(welcomeDimStyle.Render(fmt.Sprintf("  • %s: %s", dep.Name, info.ManualURL)))
 					b.WriteString("\n")
 				}
 			}
 
 			b.WriteString("\n")
-			b.WriteString(dimStyle.Render("  Enter ile devam edin"))
+			b.WriteString(welcomeDimStyle.Render("  Enter ile devam edin"))
 			b.WriteString("\n")
 		}
 	} else {
 		// Tüm araçlar kurulu
 		b.WriteString(successStyle.Render("  Tum gerekli araclar kurulu. Hazirsiniz."))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("  Enter ile devam edin"))
+		b.WriteString(welcomeDimStyle.Render("  Enter ile devam edin"))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç"))
+	b.WriteString(welcomeDimStyle.Render("  ↑↓ Gezin  •  Enter Seç"))
 	b.WriteString("\n")
 
 	return b.String()
@@ -258,21 +292,21 @@ func (m interactiveModel) viewWelcomeInstalling() string {
 	b.WriteString("\n\n")
 
 	frame := spinnerFrames[m.spinnerIdx]
-	spinnerStyle := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor)
+	spinnerStyle := lipgloss.NewStyle().Bold(true).Foreground(welcomeSecondaryColor)
 
 	b.WriteString(spinnerStyle.Render(fmt.Sprintf("  %s Araçlar kuruluyor", frame)))
 
 	dots := strings.Repeat(".", (m.spinnerTick/3)%4)
-	b.WriteString(dimStyle.Render(dots))
+	b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render(dots))
 	b.WriteString("\n\n")
 
 	if m.installingToolName != "" {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  Kurulan: %s", m.installingToolName)))
+		b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render(fmt.Sprintf("  Kurulan: %s", m.installingToolName)))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  Lütfen bekleyin, kurulum devam ediyor..."))
+	b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render("  Lütfen bekleyin, kurulum devam ediyor..."))
 	b.WriteString("\n")
 
 	// Kurulum uyarısı
