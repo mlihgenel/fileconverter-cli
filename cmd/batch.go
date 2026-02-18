@@ -13,11 +13,17 @@ import (
 )
 
 var (
-	batchTo        string
-	batchFrom      string
-	batchRecursive bool
-	batchDryRun    bool
-	batchQuality   int
+	batchTo         string
+	batchFrom       string
+	batchRecursive  bool
+	batchDryRun     bool
+	batchQuality    int
+	batchPreset     string
+	batchWidth      float64
+	batchHeight     float64
+	batchUnit       string
+	batchResizeDPI  float64
+	batchResizeMode string
 )
 
 var batchCmd = &cobra.Command{
@@ -33,7 +39,9 @@ Worker pool kullanarak paralel dönüşüm yapar.
   fileconverter-cli batch ./videolar --from mp4 --to gif --quality 80
   fileconverter-cli batch "*.png" --to jpg --quality 85
   fileconverter-cli batch ./resimler --from png --to jpg --dry-run
-  fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/`,
+  fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/
+  fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
+  fileconverter-cli batch ./fotograflar --from jpg --to webp --width 10 --height 15 --unit cm --dpi 300`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		source := args[0]
@@ -52,14 +60,31 @@ Worker pool kullanarak paralel dönüşüm yapar.
 			return fmt.Errorf("kaynak format belirtilmedi")
 		}
 
-		// Aynı format kontrolü
-		if fromFormat == targetFormat {
+		resizeSpec, err := converter.BuildResizeSpec(
+			batchPreset,
+			batchWidth,
+			batchHeight,
+			batchUnit,
+			batchResizeMode,
+			batchResizeDPI,
+		)
+		if err != nil {
+			ui.PrintError(fmt.Sprintf("Boyutlandırma parametreleri hatalı: %s", err.Error()))
+			return err
+		}
+		if resizeSpec != nil && !converter.IsResizableFormat(fromFormat) {
+			err := fmt.Errorf("boyutlandırma sadece görsel ve video dosyalarında kullanılabilir")
+			ui.PrintError(err.Error())
+			return err
+		}
+		// Aynı format, resize yoksa no-op
+		if fromFormat == targetFormat && resizeSpec == nil {
 			ui.PrintWarning("Kaynak ve hedef format aynı, dönüşüm gerekli değil.")
 			return nil
 		}
 
 		// Dönüşüm desteği kontrolü
-		_, err := converter.FindConverter(fromFormat, targetFormat)
+		_, err = converter.FindConverter(fromFormat, targetFormat)
 		if err != nil {
 			ui.PrintError(err.Error())
 			return err
@@ -99,6 +124,13 @@ Worker pool kullanarak paralel dönüşüm yapar.
 
 		// Dosya bilgisi
 		ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), converter.FormatFilterLabel(fromFormat)))
+		if resizeSpec != nil {
+			source := "manuel"
+			if resizeSpec.Preset != "" {
+				source = "preset: " + resizeSpec.Preset
+			}
+			ui.PrintInfo(fmt.Sprintf("Boyutlandırma: %dx%d (%s, mod: %s)", resizeSpec.Width, resizeSpec.Height, source, resizeSpec.Mode))
+		}
 
 		if verbose {
 			for _, f := range files {
@@ -132,6 +164,7 @@ Worker pool kullanarak paralel dönüşüm yapar.
 				Options: converter.Options{
 					Quality: batchQuality,
 					Verbose: verbose,
+					Resize:  resizeSpec,
 				},
 			}
 		}
@@ -178,6 +211,12 @@ func init() {
 	batchCmd.Flags().BoolVarP(&batchRecursive, "recursive", "r", false, "Alt dizinleri de tara")
 	batchCmd.Flags().BoolVar(&batchDryRun, "dry-run", false, "Ön izleme — dönüşüm yapmadan listele")
 	batchCmd.Flags().IntVarP(&batchQuality, "quality", "q", 0, "Kalite seviyesi (1-100)")
+	batchCmd.Flags().StringVar(&batchPreset, "preset", "", "Hazır boyut preset'i (ör: story, square, fullhd, 1080x1920)")
+	batchCmd.Flags().Float64Var(&batchWidth, "width", 0, "Manuel hedef genişlik")
+	batchCmd.Flags().Float64Var(&batchHeight, "height", 0, "Manuel hedef yükseklik")
+	batchCmd.Flags().StringVar(&batchUnit, "unit", "px", "Manuel ölçü birimi: px veya cm")
+	batchCmd.Flags().Float64Var(&batchResizeDPI, "dpi", 96, "Birim cm ise kullanılacak DPI değeri")
+	batchCmd.Flags().StringVar(&batchResizeMode, "resize-mode", "pad", "Boyutlandırma modu: pad, fit, fill, stretch")
 
 	batchCmd.MarkFlagRequired("to")
 	batchCmd.MarkFlagRequired("from")

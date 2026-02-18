@@ -65,7 +65,7 @@ func (v *VideoConverter) SupportsConversion(from, to string) bool {
 		}
 	}
 
-	return fromSupported && toSupported && from != to
+	return fromSupported && toSupported
 }
 
 func (v *VideoConverter) Convert(input string, output string, opts Options) error {
@@ -82,6 +82,29 @@ func (v *VideoConverter) Convert(input string, output string, opts Options) erro
 	}
 
 	args = append(args, "-i", input, "-y")
+
+	filters := make([]string, 0, 2)
+	if to == "gif" {
+		fps, width := gifProfile(opts.Quality)
+		if opts.Resize == nil {
+			filters = append(filters, fmt.Sprintf("fps=%d,scale=%d:-1:flags=lanczos", fps, width))
+		} else {
+			filters = append(filters, fmt.Sprintf("fps=%d", fps))
+		}
+	}
+
+	if opts.Resize != nil {
+		resizeFilter, err := buildVideoResizeFilter(*opts.Resize)
+		if err != nil {
+			return err
+		}
+		filters = append(filters, resizeFilter)
+		args = append(args, "-sws_flags", "lanczos+accurate_rnd")
+	}
+
+	if len(filters) > 0 {
+		args = append(args, "-vf", strings.Join(filters, ","))
+	}
 
 	// Video çıktılarında varsa sesi koru, yoksa sessiz devam et.
 	if to != "gif" {
@@ -105,9 +128,7 @@ func (v *VideoConverter) getCodecArgs(to string, quality int) []string {
 
 	switch to {
 	case "gif":
-		fps, width := gifProfile(quality)
-		filter := fmt.Sprintf("fps=%d,scale=%d:-1:flags=lanczos", fps, width)
-		return []string{"-vf", filter, "-loop", "0", "-an"}
+		return []string{"-loop", "0", "-an"}
 	case "webm":
 		webmCRF := crf + 6
 		if webmCRF > 40 {
@@ -159,6 +180,37 @@ func (v *VideoConverter) getCodecArgs(to string, quality int) []string {
 			"-b:a", "128k",
 		}
 	}
+}
+
+func buildVideoResizeFilter(spec ResizeSpec) (string, error) {
+	width := normalizeVideoDimension(spec.Width)
+	height := normalizeVideoDimension(spec.Height)
+	if width <= 0 || height <= 0 {
+		return "", fmt.Errorf("geçersiz video hedef boyutu: %dx%d", spec.Width, spec.Height)
+	}
+
+	switch spec.Mode {
+	case ResizeModeStretch:
+		return fmt.Sprintf("scale=%d:%d:flags=lanczos", width, height), nil
+	case ResizeModeFit:
+		return fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2", width, height), nil
+	case ResizeModeFill:
+		return fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=increase:force_divisible_by=2,crop=%d:%d", width, height, width, height), nil
+	case ResizeModePad:
+		return fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", width, height, width, height), nil
+	default:
+		return "", fmt.Errorf("desteklenmeyen video resize modu: %s", spec.Mode)
+	}
+}
+
+func normalizeVideoDimension(value int) int {
+	if value < 2 {
+		return 2
+	}
+	if value%2 == 1 {
+		return value + 1
+	}
+	return value
 }
 
 func videoCRF(quality int) int {

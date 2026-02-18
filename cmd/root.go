@@ -16,7 +16,7 @@ var (
 	outputDir string
 	workers   int
 
-	appVersion = "1.0.0"
+	appVersion = "1.1.0"
 	appCommit  = "none"
 	appDate    = "unknown"
 )
@@ -36,18 +36,23 @@ var rootCmd = &cobra.Command{
 Belge, ses, görsel ve video dosyalarını internet'e yüklemeden, tamamen yerel
 olarak farklı formatlara dönüştürmenizi sağlar.
 
+Interaktif ana menu:
+  Dosya Donustur, Toplu Donustur, Boyutlandir, Toplu Boyutlandir
+
 Desteklenen kategoriler:
-  📄 Belgeler:  MD, HTML, PDF, DOCX, TXT
-  🎵 Ses:       MP3, WAV, OGG, FLAC, AAC, M4A, WMA  (FFmpeg gerektirir)
-  🖼️  Görseller: PNG, JPEG, WEBP, BMP, GIF, TIFF
-  🎬 Videolar:  MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF  (FFmpeg gerektirir)
+  Belgeler:  MD, HTML, PDF, DOCX, TXT
+  Ses:       MP3, WAV, OGG, FLAC, AAC, M4A, WMA  (FFmpeg gerekir)
+  Gorseller: PNG, JPEG, WEBP, BMP, GIF, TIFF
+  Videolar:  MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF  (FFmpeg gerekir)
 
 Örnekler:
   fileconverter-cli convert dosya.md --to pdf
   fileconverter-cli convert muzik.mp3 --to wav
   fileconverter-cli convert resim.png --to jpg --quality 90
+  fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
   fileconverter-cli convert klip.mp4 --to gif --quality 80
   fileconverter-cli batch ./belgeler --from md --to pdf
+  fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -76,7 +81,7 @@ func init() {
 	rootCmd.SilenceUsage = true
 
 	rootCmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
-		fmt.Fprintf(os.Stderr, "❌ Hata: %s\n\n", err.Error())
+		fmt.Fprintf(os.Stderr, "Hata: %s\n\n", err.Error())
 		cmd.Usage()
 		return err
 	})

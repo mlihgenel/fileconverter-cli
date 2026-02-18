@@ -41,22 +41,22 @@ var welcomeGradient = []lipgloss.Color{
 // Uygulama tanıtım metni
 var welcomeDescLines = []string{
 	"",
-	"  ✨ FileConverter'a hoş geldiniz!",
+	"  FileConverter'a hos geldiniz!",
 	"",
 	"  Bu uygulama, dosyalarınızı yerel ortamda güvenli bir şekilde",
 	"  dönüştürmenizi sağlar. İnternet'e yükleme gerektirmez.",
 	"",
-	"  🚀 Özellikler:",
+	"  Ozellikler:",
 	"",
-	"     📄  Belge Dönüşümü   — MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV",
-	"     🎵  Ses Dönüşümü     — MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS",
-	"     🖼️   Görsel Dönüşümü  — PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO",
-	"     🎬  Video Dönüşümü   — MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF",
+	"     Belge Donusumu   — MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV",
+	"     Ses Donusumu     — MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS",
+	"     Gorsel Donusumu  — PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO",
+	"     Video Donusumu   — MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF",
 	"",
-	"  ⚡ Toplu dönüşüm ile bir dizindeki tüm dosyaları aynı anda",
+	"  Toplu donusum ile bir dizindeki tum dosyalari ayni anda",
 	"     dönüştürebilirsiniz.",
 	"",
-	"  🔒 Tüm işlemler tamamen yerel — verileriniz sizde kalır.",
+	"  Tum islemler tamamen yerel — verileriniz sizde kalir.",
 	"",
 }
 
@@ -151,7 +151,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 		MarginBottom(1)
 
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render(" 🔧 Sistem Kontrolü "))
+	b.WriteString(titleStyle.Render(" Sistem Kontrolu "))
 	b.WriteString("\n\n")
 
 	b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render(
@@ -165,11 +165,11 @@ func (m interactiveModel) viewWelcomeDeps() string {
 		var style lipgloss.Style
 
 		if dep.Available {
-			statusIcon = "✅"
+			statusIcon = "OK"
 			statusText = "Kurulu"
 			style = successStyle
 		} else {
-			statusIcon = "❌"
+			statusIcon = "NO"
 			statusText = "Kurulu Değil"
 			style = errorStyle
 			hasMissing = true
@@ -202,7 +202,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 
 		if pm != "" {
 			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(warningColor).Render(
-				"  ⚠ Eksik araçlar algılandı!"))
+				"  Eksik araclar algilandi"))
 			b.WriteString("\n\n")
 
 			b.WriteString(dimStyle.Render(fmt.Sprintf("  Paket yöneticisi: %s", pm)))
@@ -220,7 +220,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 			}
 		} else {
 			b.WriteString(lipgloss.NewStyle().Foreground(warningColor).Render(
-				"  ⚠ Paket yöneticisi bulunamadı. Araçları manuel olarak kurmanız gerekiyor."))
+				"  Paket yoneticisi bulunamadi. Araclari manuel olarak kurmaniz gerekiyor."))
 			b.WriteString("\n\n")
 
 			// Manuel kurulum bilgileri
@@ -238,7 +238,7 @@ func (m interactiveModel) viewWelcomeDeps() string {
 		}
 	} else {
 		// Tüm araçlar kurulu
-		b.WriteString(successStyle.Render("  🎉 Tüm gerekli araçlar kurulu! Hazırsınız."))
+		b.WriteString(successStyle.Render("  Tum gerekli araclar kurulu. Hazirsiniz."))
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("  Enter ile devam edin"))
 		b.WriteString("\n")

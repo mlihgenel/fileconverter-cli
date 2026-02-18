@@ -5,14 +5,17 @@ import (
 	"encoding/binary"
 	"fmt"
 	"image"
+	"image/color"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"strings"
 
 	"golang.org/x/image/bmp"
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 )
@@ -77,7 +80,7 @@ func (ic *ImageConverter) SupportsConversion(from, to string) bool {
 			toOk = true
 		}
 	}
-	return fromOk && toOk && from != to
+	return fromOk && toOk
 }
 
 func (ic *ImageConverter) Convert(input string, output string, opts Options) error {
@@ -90,8 +93,117 @@ func (ic *ImageConverter) Convert(input string, output string, opts Options) err
 		return err
 	}
 
+	if opts.Resize != nil {
+		img, err = ic.resizeImage(img, *opts.Resize)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Hedef formata encode et
 	return ic.encodeImage(output, img, to, opts.Quality)
+}
+
+func (ic *ImageConverter) resizeImage(src image.Image, spec ResizeSpec) (image.Image, error) {
+	if spec.Width <= 0 || spec.Height <= 0 {
+		return nil, fmt.Errorf("geçersiz hedef boyut: %dx%d", spec.Width, spec.Height)
+	}
+
+	srcBounds := src.Bounds()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+	if srcWidth <= 0 || srcHeight <= 0 {
+		return nil, fmt.Errorf("geçersiz kaynak görsel boyutu")
+	}
+
+	switch spec.Mode {
+	case ResizeModeStretch:
+		return scaleImage(src, spec.Width, spec.Height), nil
+
+	case ResizeModeFit:
+		w, h := containSize(srcWidth, srcHeight, spec.Width, spec.Height)
+		return scaleImage(src, w, h), nil
+
+	case ResizeModeFill:
+		w, h := coverSize(srcWidth, srcHeight, spec.Width, spec.Height)
+		scaled := scaleImage(src, w, h)
+		return cropCenter(scaled, spec.Width, spec.Height), nil
+
+	case ResizeModePad:
+		w, h := containSize(srcWidth, srcHeight, spec.Width, spec.Height)
+		scaled := scaleImage(src, w, h)
+
+		canvas := image.NewRGBA(image.Rect(0, 0, spec.Width, spec.Height))
+		xdraw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.Black}, image.Point{}, xdraw.Src)
+
+		offsetX := (spec.Width - w) / 2
+		offsetY := (spec.Height - h) / 2
+		dstRect := image.Rect(offsetX, offsetY, offsetX+w, offsetY+h)
+		xdraw.Draw(canvas, dstRect, scaled, scaled.Bounds().Min, xdraw.Over)
+		return canvas, nil
+
+	default:
+		return nil, fmt.Errorf("desteklenmeyen resize modu: %s", spec.Mode)
+	}
+}
+
+func scaleImage(src image.Image, width int, height int) image.Image {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), xdraw.Over, nil)
+	return dst
+}
+
+func containSize(srcWidth int, srcHeight int, targetWidth int, targetHeight int) (int, int) {
+	scale := math.Min(float64(targetWidth)/float64(srcWidth), float64(targetHeight)/float64(srcHeight))
+	w := int(math.Round(float64(srcWidth) * scale))
+	h := int(math.Round(float64(srcHeight) * scale))
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func coverSize(srcWidth int, srcHeight int, targetWidth int, targetHeight int) (int, int) {
+	scale := math.Max(float64(targetWidth)/float64(srcWidth), float64(targetHeight)/float64(srcHeight))
+	w := int(math.Round(float64(srcWidth) * scale))
+	h := int(math.Round(float64(srcHeight) * scale))
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func cropCenter(src image.Image, targetWidth int, targetHeight int) image.Image {
+	b := src.Bounds()
+	srcWidth := b.Dx()
+	srcHeight := b.Dy()
+
+	if targetWidth > srcWidth {
+		targetWidth = srcWidth
+	}
+	if targetHeight > srcHeight {
+		targetHeight = srcHeight
+	}
+
+	startX := b.Min.X + (srcWidth-targetWidth)/2
+	startY := b.Min.Y + (srcHeight-targetHeight)/2
+
+	dst := image.NewRGBA(image.Rect(0, 0, targetWidth, targetHeight))
+	xdraw.Draw(dst, dst.Bounds(), src, image.Point{X: startX, Y: startY}, xdraw.Src)
+	return dst
 }
 
 // decodeImage formatına göre görseli decode eder

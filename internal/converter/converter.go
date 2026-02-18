@@ -13,6 +13,7 @@ type Options struct {
 	Quality int    // 1-100 arası kalite ayarı
 	Verbose bool   // Detaylı çıktı modu
 	Name    string // Çıktı dosya adı (opsiyonel)
+	Resize  *ResizeSpec
 }
 
 // Result dönüşüm sonucunu tutar

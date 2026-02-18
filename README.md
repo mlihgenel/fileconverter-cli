@@ -42,6 +42,9 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 ## Özellikler
 - Belge, görsel, ses ve video dönüşümleri.
 - `mp4 -> gif` dahil video dönüşümü.
+- Görsel/video boyutlandırma: manuel (`px`/`cm`) veya hazır preset (`story`, `square`, `fullhd` vb.).
+- Oranı koruyarak dikey/yatay uyarlama (`pad`, `fit`, `fill`, `stretch`); `pad` modunda siyah boşluk desteği.
+- Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Boyutlandır`, `Toplu Boyutlandır`.
 - Batch dönüşüm (dizin veya glob pattern).
 - Paralel işleme (`--workers`) ile yüksek performans.
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
@@ -98,12 +101,19 @@ fileconverter-cli --help
 fileconverter-cli help convert
 fileconverter-cli help batch
 fileconverter-cli help formats
+fileconverter-cli help resize-presets
 ```
 
 ### İnteraktif mod (TUI)
 ```bash
 fileconverter-cli
 ```
+
+Interaktif ana menü:
+- `Dosya Dönüştür`: format dönüşümü (tek dosya)
+- `Toplu Dönüştür`: format dönüşümü (dizin/glob)
+- `Boyutlandır`: tek dosya görsel/video boyutlandırma
+- `Toplu Boyutlandır`: dizindeki görsel/video dosyalarını toplu boyutlandırma
 
 ### Format sorgulama
 ```bash
@@ -125,6 +135,12 @@ fileconverter-cli convert ses.mp3 --to wav
 
 # Video -> GIF
 fileconverter-cli convert klip.mp4 --to gif --quality 80
+
+# Yatay videoyu dikeye çevir (siyah boşluklarla oran koru)
+fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
+
+# Görseli manuel ölçüyle boyutlandır (cm)
+fileconverter-cli convert fotograf.jpg --to webp --width 12 --height 18 --unit cm --dpi 300
 ```
 
 ### Toplu (batch) dönüşüm
@@ -140,6 +156,9 @@ fileconverter-cli batch ./resimler --from jpg --to webp --dry-run
 
 # Glob kullanımı
 fileconverter-cli batch "*.png" --from png --to jpg --quality 85
+
+# Toplu olarak story ölçüsüne getir
+fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
 ```
 
 ## Komut Referansı
@@ -149,6 +168,7 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 | `fileconverter-cli` | İnteraktif TUI modunu başlatır | `fileconverter-cli` |
 | `fileconverter-cli convert <dosya>` | Tek dosya dönüşümü | `fileconverter-cli convert input.mp4 --to gif` |
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
+| `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
 | `fileconverter-cli help [komut]` | Komut yardımı gösterir | `fileconverter-cli help batch` |
@@ -170,6 +190,12 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 | `--to` | `-t` | Hedef format (zorunlu) |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--name` | `-n` | Çıktı dosya adı (uzantısız) |
+| `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
+| `--width` | - | Manuel genişlik değeri |
+| `--height` | - | Manuel yükseklik değeri |
+| `--unit` | - | Manuel birim (`px` veya `cm`) |
+| `--dpi` | - | `cm` kullanıldığında DPI değeri |
+| `--resize-mode` | - | Boyutlandırma modu: `pad`, `fit`, `fill`, `stretch` |
 
 ### `batch` flag'leri
 
@@ -180,6 +206,12 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 | `--recursive` | `-r` | Alt dizinleri de tara |
 | `--dry-run` | - | Dönüştürmeden önce planı göster |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
+| `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
+| `--width` | - | Manuel genişlik değeri |
+| `--height` | - | Manuel yükseklik değeri |
+| `--unit` | - | Manuel birim (`px` veya `cm`) |
+| `--dpi` | - | `cm` kullanıldığında DPI değeri |
+| `--resize-mode` | - | Boyutlandırma modu: `pad`, `fit`, `fill`, `stretch` |
 
 ### `formats` flag'leri
 
@@ -187,6 +219,12 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 |---|---|
 | `--from` | Belirli bir kaynaktan gidilebilen hedefleri listeler |
 | `--to` | Belirli bir hedefe gelebilen kaynakları listeler |
+
+### Boyutlandırma modları
+- `pad`: Oranı korur, hedef boyutu doldurmak için siyah boşluk ekler (yatay -> dikey için önerilen).
+- `fit`: Oranı korur, hedef kutuya sığdırır; çıktı bir kenarda daha küçük kalabilir.
+- `fill`: Oranı korur, hedef kutuyu doldurur; taşan kısmı ortadan kırpar.
+- `stretch`: Oranı korumaz, hedef ölçüye zorla esnetir.
 
 ## Desteklenen Formatlar
 
