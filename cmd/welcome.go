@@ -82,12 +82,6 @@ var featureBoxStyle = lipgloss.NewStyle().
 func (m interactiveModel) viewWelcomeIntro() string {
 	var b strings.Builder
 
-	welcomeSkipStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(welcomeSecondaryColor).
-		PaddingLeft(2)
-
-	// Logo renklerinde ASCII banner
 	for i, line := range welcomeArt {
 		if i >= len(welcomeArt) {
 			break
@@ -132,17 +126,6 @@ func (m interactiveModel) viewWelcomeIntro() string {
 	totalDesiredChars := 0
 	for _, line := range welcomeDescLines {
 		totalDesiredChars += len([]rune(line))
-	}
-
-	b.WriteString("\n")
-	quickSkipText := "  ⏩ Yazıyı hızlı geçmek için Enter'a basın"
-	if m.welcomeCharIdx < totalDesiredChars {
-		if m.showCursor {
-			b.WriteString(welcomeSkipStyle.Render(quickSkipText))
-		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(welcomeDimColor).Render(quickSkipText))
-		}
-		b.WriteString("\n")
 	}
 
 	if m.welcomeCharIdx >= totalDesiredChars {
