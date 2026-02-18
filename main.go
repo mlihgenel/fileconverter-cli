@@ -7,13 +7,11 @@ import (
 )
 
 var (
-	version = "1.1.0"
-	commit  = "none"
-	date    = "unknown"
+	version = "1.1.1"
 )
 
 func main() {
-	cmd.SetVersionInfo(version, commit, date)
+	cmd.SetVersionInfo(version, "")
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}

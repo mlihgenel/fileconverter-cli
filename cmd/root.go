@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,16 +18,28 @@ var (
 	outputDir string
 	workers   int
 
-	appVersion = "1.1.0"
-	appCommit  = "none"
-	appDate    = "unknown"
+	appVersion = "dev"
+	appDate    = ""
 )
 
 // SetVersionInfo build-time version bilgisini ayarlar
-func SetVersionInfo(version, commit, date string) {
-	appVersion = version
-	appCommit = commit
-	appDate = date
+func SetVersionInfo(version, date string) {
+	if strings.TrimSpace(version) != "" {
+		appVersion = version
+	}
+	appDate = strings.TrimSpace(date)
+	if appDate == "" || appDate == "unknown" {
+		appDate = time.Now().Format("2006-01-02 15:04:05")
+	}
+	rootCmd.Version = appVersion
+	rootCmd.SetVersionTemplate(versionTemplate())
+}
+
+func versionTemplate() string {
+	return fmt.Sprintf(
+		"FileConverter CLI v%s\nTarih:  %s\nGo:     %s\nOS:     %s/%s\n",
+		appVersion, appDate, runtime.Version(), runtime.GOOS, runtime.GOARCH,
+	)
 }
 
 var rootCmd = &cobra.Command{
@@ -71,10 +85,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "output", "o", "", "Çıktı dizini (varsayılan: kaynak dizin)")
 	rootCmd.PersistentFlags().IntVarP(&workers, "workers", "w", runtime.NumCPU(), "Paralel worker sayısı (batch modunda)")
 
-	rootCmd.SetVersionTemplate(fmt.Sprintf(
-		"FileConverter CLI v%s\nCommit: %s\nTarih:  %s\nGo:     %s\nOS:     %s/%s\n",
-		appVersion, appCommit, appDate, runtime.Version(), runtime.GOOS, runtime.GOARCH,
-	))
+	SetVersionInfo(appVersion, appDate)
 
 	// Hata mesajlarını özelleştir
 	rootCmd.SilenceErrors = true
