@@ -42,7 +42,7 @@ func PrintBanner() {
 	banner := `
 ` + Cyan + Bold + `
   ╔═══════════════════════════════════════════════╗
-  ║        FileConverter CLI  v1.0.0              ║
+  ║        FileConverter CLI  v1.2.0              ║
   ║   Yerel dosya format dönüştürücü              ║
   ╚═══════════════════════════════════════════════╝` + Reset + `
 `
