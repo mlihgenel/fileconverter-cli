@@ -55,7 +55,7 @@ Belge, ses, görsel ve video dosyalarını internet'e yüklemeden, tamamen yerel
 olarak farklı formatlara dönüştürmenizi sağlar.
 
 Interaktif ana menu:
-  Dosya Donustur, Toplu Donustur, Boyutlandir, Toplu Boyutlandir
+  Dosya Donustur, Toplu Donustur, Klasor Izle, Video Klip Cikar, Boyutlandir, Toplu Boyutlandir
 
 Desteklenen kategoriler:
   Belgeler:  MD, HTML, PDF, DOCX, TXT
@@ -75,7 +75,7 @@ Desteklenen kategoriler:
   fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json
   fileconverter-cli watch ./incoming --from jpg --to webp
   fileconverter-cli pipeline run ./pipeline.json --profile social-story
-  fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
+  fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10  (yeni klip üretir)
   fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,

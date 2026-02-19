@@ -31,13 +31,18 @@ var (
 
 var videoCmd = &cobra.Command{
 	Use:   "video",
-	Short: "Video yardımcı komutları",
+	Short: "Video yardımcı komutları (klip çıkarma vb.)",
+	Long: `Video dosyaları için yardımcı komutlar.
+
+Not: "trim" komutu videonun seçilen bölümünü yeni bir çıktı dosyası olarak çıkarır.
+Orijinal videodan aralık silme (remove interval + stitch) yapmaz.`,
 }
 
 var videoTrimCmd = &cobra.Command{
 	Use:   "trim <video-dosyasi>",
-	Short: "Videoyu başlangıç/bitiş zamanına göre kes",
-	Long: `FFmpeg kullanarak videoyu belirtilen aralığa keser.
+	Short: "Videodan zaman aralığını yeni klip dosyası olarak çıkarır",
+	Long: `FFmpeg kullanarak videonun belirtilen aralığını yeni bir çıktı klibi olarak üretir.
+Orijinal dosya değiştirilmez.
 
 Örnekler:
   fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 00:00:10
@@ -112,19 +117,19 @@ var videoTrimCmd = &cobra.Command{
 			ui.PrintError(err.Error())
 			return err
 		}
-		ui.PrintSuccess("Video trim tamamlandı!")
+		ui.PrintSuccess("Video klip çıkarma tamamlandı!")
 		ui.PrintDuration(time.Since(started))
 		return nil
 	},
 }
 
 func init() {
-	videoTrimCmd.Flags().StringVar(&videoTrimStart, "start", "0", "Başlangıç zamanı (örn: 00:01:05)")
+	videoTrimCmd.Flags().StringVar(&videoTrimStart, "start", "0", "Klibin başlangıç zamanı (örn: 00:01:05)")
 	videoTrimCmd.Flags().StringVar(&videoTrimEnd, "end", "", "Bitiş zamanı (örn: 00:02:00)")
-	videoTrimCmd.Flags().StringVar(&videoTrimDuration, "duration", "", "Süre (örn: 15, 00:00:15)")
-	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "copy", "Codec modu: copy veya reencode")
+	videoTrimCmd.Flags().StringVar(&videoTrimDuration, "duration", "", "Klip süresi (örn: 15, 00:00:15)")
+	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "copy", "Klip çıkarma codec modu: copy veya reencode")
 	videoTrimCmd.Flags().StringVar(&videoTrimOutputFile, "output-file", "", "Tam çıktı dosya yolu")
-	videoTrimCmd.Flags().StringVarP(&videoTrimName, "name", "n", "", "Çıktı dosya adı (uzantısız)")
+	videoTrimCmd.Flags().StringVarP(&videoTrimName, "name", "n", "", "Çıktı klip adı (uzantısız)")
 	videoTrimCmd.Flags().StringVar(&videoTrimToFormat, "to", "", "Hedef format (örn: mp4, mov)")
 	videoTrimCmd.Flags().StringVar(&videoTrimProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	videoTrimCmd.Flags().IntVarP(&videoTrimQuality, "quality", "q", 0, "Reencode modunda kalite seviyesi (1-100)")

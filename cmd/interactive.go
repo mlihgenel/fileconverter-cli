@@ -160,6 +160,9 @@ const (
 	stateResizeManualDPI
 	stateResizeModeSelect
 	stateWatching
+	stateVideoTrimStart
+	stateVideoTrimDuration
+	stateVideoTrimCodec
 )
 
 // ========================================
@@ -183,6 +186,7 @@ type interactiveModel struct {
 	flowIsBatch    bool
 	flowResizeOnly bool
 	flowIsWatch    bool
+	flowVideoTrim  bool
 
 	// Dönüşüm bilgileri
 	sourceFormat string
@@ -272,6 +276,12 @@ type interactiveModel struct {
 	resizeUnit          string
 	resizeDPIInput      string
 	resizeValidationErr string
+
+	// Video trim
+	trimStartInput    string
+	trimDurationInput string
+	trimCodec         string
+	trimValidationErr string
 }
 
 type browserEntry struct {
@@ -339,6 +349,7 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Dosya Dönüştür",
 			"Toplu Dönüştür (Batch)",
 			"Klasör İzle (Watch)",
+			"Video Klip Çıkar",
 			"Boyutlandır",
 			"Toplu Boyutlandır",
 			"Desteklenen Formatlar",
@@ -346,11 +357,12 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Ayarlar",
 			"Çıkış",
 		},
-		choiceIcons: []string{"🔄", "📦", "👀", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
+		choiceIcons: []string{"🔄", "📦", "👀", "✂️", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
 		choiceDescs: []string{
 			"Tek bir dosyayı başka formata dönüştür",
 			"Dizindeki tüm dosyaları toplu dönüştür",
 			"Klasörde yeni dosyaları izleyip otomatik dönüştür",
+			"Videodan seçilen aralığı yeni klip olarak çıkarır (orijinali korur)",
 			"Tek dosya için görsel/video boyutlandırma",
 			"Dizindeki dosyalar için toplu boyutlandırma",
 			"Desteklenen format ve dönüşüm yollarını gör",
@@ -644,7 +656,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.isResizeTextInputState() {
+		if m.isResizeTextInputState() || m.isVideoTrimTextInputState() {
 			switch msg.String() {
 			case "ctrl+c":
 				m.quitting = true
@@ -656,10 +668,17 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				return m.goBack(), nil
 			case "backspace", "ctrl+h":
-				m.popResizeInput()
+				if m.isResizeTextInputState() {
+					m.popResizeInput()
+				} else {
+					m.popVideoTrimInput()
+				}
 				return m, nil
 			default:
-				if m.appendResizeInput(msg.String()) {
+				if m.isResizeTextInputState() && m.appendResizeInput(msg.String()) {
+					return m, nil
+				}
+				if m.isVideoTrimTextInputState() && m.appendVideoTrimInput(msg.String()) {
 					return m, nil
 				}
 				return m, nil
@@ -728,6 +747,8 @@ func (m interactiveModel) getMaxCursor() int {
 	case stateResizeManualWidth, stateResizeManualHeight, stateResizeManualDPI:
 		return 0
 	case stateWatching:
+		return 0
+	case stateVideoTrimStart, stateVideoTrimDuration:
 		return 0
 	default:
 		return len(m.choices) - 1
@@ -804,6 +825,12 @@ func (m interactiveModel) View() string {
 		return m.viewResizeModeSelect()
 	case stateWatching:
 		return m.viewWatching()
+	case stateVideoTrimStart:
+		return m.viewVideoTrimNumericInput("Video Klip Çıkarma — Başlangıç (sn veya hh:mm:ss)", m.trimStartInput, "Örnek: 23 veya 00:00:23")
+	case stateVideoTrimDuration:
+		return m.viewVideoTrimNumericInput("Video Klip Çıkarma — Süre (sn veya hh:mm:ss)", m.trimDurationInput, "Örnek: 2 veya 00:00:02")
+	case stateVideoTrimCodec:
+		return m.viewVideoTrimCodecSelect()
 	default:
 		return ""
 	}
@@ -955,11 +982,16 @@ func (m interactiveModel) viewFileBrowser() string {
 
 	// Breadcrumb
 	cat := categories[m.selectedCategory]
-	crumb := fmt.Sprintf("  %s %s › %s › %s",
-		cat.Icon,
-		cat.Name,
-		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
-		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
+	crumb := ""
+	if m.flowVideoTrim {
+		crumb = fmt.Sprintf("  ✂️ Video Klip Çıkar › %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Video Seç"))
+	} else {
+		crumb = fmt.Sprintf("  %s %s › %s › %s",
+			cat.Icon,
+			cat.Name,
+			lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
+			lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
+	}
 	b.WriteString(breadcrumbStyle.Render(crumb))
 	b.WriteString("\n\n")
 
@@ -972,7 +1004,11 @@ func (m interactiveModel) viewFileBrowser() string {
 	b.WriteString("\n\n")
 
 	if len(m.browserItems) == 0 {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("  Bu dizinde .%s dosyası veya klasör bulunamadı!", converter.FormatFilterLabel(m.sourceFormat))))
+		if m.flowVideoTrim {
+			b.WriteString(errorStyle.Render("  Bu dizinde video dosyası veya klasör bulunamadı!"))
+		} else {
+			b.WriteString(errorStyle.Render(fmt.Sprintf("  Bu dizinde .%s dosyası veya klasör bulunamadı!", converter.FormatFilterLabel(m.sourceFormat))))
+		}
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("  Esc Geri"))
 		b.WriteString("\n")
@@ -1002,10 +1038,14 @@ func (m interactiveModel) viewFileBrowser() string {
 			}
 		} else {
 			// Dosyalar
+			fileIcon := cat.Icon
+			if m.flowVideoTrim {
+				fileIcon = "🎬"
+			}
 			if i == m.cursor {
-				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ %s %s", cat.Icon, item.name)))
+				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ %s %s", fileIcon, item.name)))
 			} else {
-				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s %s", cat.Icon, item.name)))
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("  %s %s", fileIcon, item.name)))
 			}
 		}
 		b.WriteString("\n")
@@ -1040,6 +1080,10 @@ func (m interactiveModel) viewFileBrowser() string {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  Ayar: kalite=%d, conflict=%s", m.defaultQuality, m.defaultOnConflict)))
 	b.WriteString("\n")
+	if m.flowVideoTrim {
+		b.WriteString(dimStyle.Render("  Not: Seçilen aralık yeni klip dosyası olarak çıkarılır, orijinal video korunur"))
+		b.WriteString("\n")
+	}
 	if m.resizeSpec != nil {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("  Boyutlandırma: %s", m.resizeSummary())))
 		b.WriteString("\n")
@@ -1295,23 +1339,25 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		case 2:
 			return m.goToCategorySelect(true, false, true), nil
 		case 3:
-			return m.goToCategorySelect(false, true, false), nil
+			return m.goToVideoTrimBrowser(), nil
 		case 4:
-			return m.goToCategorySelect(true, true, false), nil
+			return m.goToCategorySelect(false, true, false), nil
 		case 5:
+			return m.goToCategorySelect(true, true, false), nil
+		case 6:
 			m.state = stateFormats
 			m.cursor = 0
 			return m, nil
-		case 6:
+		case 7:
 			m.state = stateDependencies
 			m.cursor = 0
 			return m, nil
-		case 7:
+		case 8:
 			// Ayarlar
 			m.state = stateSettings
 			m.cursor = 0
 			return m, nil
-		case 8:
+		case 9:
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -1346,8 +1392,26 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 				m.loadBrowserItems()
 				return m, nil
 			} else {
-				// Dosya seç ve dönüştür
+				// Dosya seç
 				m.selectedFile = item.path
+				if m.flowVideoTrim {
+					if depName, toolName := m.checkRequiredDep(); depName != "" {
+						m.missingDepName = depName
+						m.missingDepToolName = toolName
+						m.pendingConvertCmd = nil
+						m.isBatchPending = false
+						m.state = stateMissingDep
+						m.cursor = 0
+						return m, nil
+					}
+					m.trimStartInput = "0"
+					m.trimDurationInput = "10"
+					m.trimCodec = "copy"
+					m.trimValidationErr = ""
+					m.state = stateVideoTrimStart
+					m.cursor = 0
+					return m, nil
+				}
 				// Bağımlılık kontrolü yap
 				if depName, toolName := m.checkRequiredDep(); depName != "" {
 					m.missingDepName = depName
@@ -1452,6 +1516,47 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		m.resizeValidationErr = ""
 		return m.proceedAfterResizeSelection()
 
+	case stateVideoTrimStart:
+		normalized, err := normalizeVideoTrimTime(m.trimStartInput, true)
+		if err != nil {
+			m.trimValidationErr = "Geçersiz başlangıç değeri"
+			return m, nil
+		}
+		m.trimStartInput = normalized
+		m.trimValidationErr = ""
+		m.state = stateVideoTrimDuration
+		m.cursor = 0
+		return m, nil
+
+	case stateVideoTrimDuration:
+		normalized, err := normalizeVideoTrimTime(m.trimDurationInput, false)
+		if err != nil {
+			m.trimValidationErr = "Geçersiz süre değeri"
+			return m, nil
+		}
+		m.trimDurationInput = normalized
+		m.trimValidationErr = ""
+		m.state = stateVideoTrimCodec
+		m.cursor = 0
+		m.choices = []string{"Copy (hızlı)", "Re-encode (uyumlu)"}
+		m.choiceIcons = []string{"⚡", "🎞️"}
+		m.choiceDescs = []string{
+			"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
+			"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
+		}
+		return m, nil
+
+	case stateVideoTrimCodec:
+		if m.cursor == 0 {
+			m.trimCodec = "copy"
+		} else {
+			m.trimCodec = "reencode"
+		}
+		m.trimValidationErr = ""
+		m.targetFormat = converter.DetectFormat(m.selectedFile)
+		m.state = stateConverting
+		return m, m.doVideoTrim()
+
 	case stateBatchBrowser:
 		// Klasör listesinden sayı al
 		dirItems := []browserEntry{}
@@ -1547,6 +1652,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.flowIsBatch = false
 	m.flowResizeOnly = false
 	m.flowIsWatch = false
+	m.flowVideoTrim = false
 	m.watcher = nil
 	m.watchProcessing = false
 	m.watchLastStatus = ""
@@ -1560,10 +1666,15 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.watchLastBatchAt = time.Time{}
 	m.batchSkipped = 0
 	m.resetResizeState()
+	m.trimStartInput = ""
+	m.trimDurationInput = ""
+	m.trimCodec = ""
+	m.trimValidationErr = ""
 	m.choices = []string{
 		"Dosya Dönüştür",
 		"Toplu Dönüştür (Batch)",
 		"Klasör İzle (Watch)",
+		"Video Klip Çıkar",
 		"Boyutlandır",
 		"Toplu Boyutlandır",
 		"Desteklenen Formatlar",
@@ -1571,11 +1682,12 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 		"Ayarlar",
 		"Çıkış",
 	}
-	m.choiceIcons = []string{"🔄", "📦", "👀", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
+	m.choiceIcons = []string{"🔄", "📦", "👀", "✂️", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
 	m.choiceDescs = []string{
 		"Tek bir dosyayı başka formata dönüştür",
 		"Dizindeki tüm dosyaları toplu dönüştür",
 		"Klasörde yeni dosyaları izleyip otomatik dönüştür",
+		"Videodan seçilen aralığı yeni klip olarak çıkarır (orijinali korur)",
 		"Tek dosya için görsel/video boyutlandırma",
 		"Dizindeki dosyalar için toplu boyutlandırma",
 		"Desteklenen format ve dönüşüm yollarını gör",
@@ -1595,6 +1707,9 @@ func (m interactiveModel) goBack() interactiveModel {
 	case stateSelectTargetFormat:
 		return m.goToSourceFormatSelect(false)
 	case stateFileBrowser:
+		if m.flowVideoTrim {
+			return m.goToMainMenu()
+		}
 		if m.flowResizeOnly {
 			return m.goToResizeConfig(false)
 		}
@@ -1633,6 +1748,21 @@ func (m interactiveModel) goBack() interactiveModel {
 			return m.goToResizeManualUnitSelect()
 		}
 		return m.goToResizeConfig(m.resizeIsBatchFlow)
+	case stateVideoTrimStart:
+		m.state = stateFileBrowser
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
+	case stateVideoTrimDuration:
+		m.state = stateVideoTrimStart
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
+	case stateVideoTrimCodec:
+		m.state = stateVideoTrimDuration
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
 	case stateConvertDone, stateBatchDone, stateFormats:
 		return m.goToMainMenu()
 	case stateSettings:
@@ -1660,6 +1790,8 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.flowIsBatch = isBatch
 	m.flowResizeOnly = resizeOnly
 	m.flowIsWatch = isWatch
+	m.flowVideoTrim = false
+	m.trimValidationErr = ""
 	m.cursor = 0
 
 	m.categoryIndices = nil
@@ -1810,6 +1942,12 @@ func (m *interactiveModel) loadBrowserItems() {
 				name:  e.Name(),
 				path:  fullPath,
 				isDir: true,
+			})
+		} else if m.flowVideoTrim && isVideoTrimSourceFile(e.Name()) {
+			files = append(files, browserEntry{
+				name:  e.Name(),
+				path:  fullPath,
+				isDir: false,
 			})
 		} else if converter.HasFormatExtension(e.Name(), m.sourceFormat) {
 			files = append(files, browserEntry{
@@ -2152,6 +2290,13 @@ func (m interactiveModel) doInstallSingleTool(toolName string) tea.Cmd {
 // checkRequiredDep dönüşüm için gerekli bağımlılığı kontrol eder
 // Eksikse (depName, toolName) döner, yoksa ("", "") döner
 func (m interactiveModel) checkRequiredDep() (string, string) {
+	if m.flowVideoTrim {
+		if !converter.IsFFmpegAvailable() {
+			return "FFmpeg", "ffmpeg"
+		}
+		return "", ""
+	}
+
 	cat := categories[m.selectedCategory]
 
 	// Ses dönüşümü → FFmpeg
