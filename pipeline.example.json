@@ -1,0 +1,23 @@
+{
+  "input": "./input.mp4",
+  "output": "./output/final.mp3",
+  "steps": [
+    {
+      "type": "convert",
+      "to": "wav",
+      "quality": 90
+    },
+    {
+      "type": "audio-normalize",
+      "target_lufs": -14,
+      "target_tp": -1.5,
+      "target_lra": 11
+    },
+    {
+      "type": "convert",
+      "to": "mp3",
+      "quality": 90,
+      "metadata_mode": "strip"
+    }
+  ]
+}

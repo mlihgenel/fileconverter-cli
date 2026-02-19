@@ -98,6 +98,18 @@ func applyProfileToWatch(cmd *cobra.Command, p profile.Definition) {
 	}
 }
 
+func applyProfileToPipeline(cmd *cobra.Command, p profile.Definition) {
+	if p.Quality != nil && !cmd.Flags().Changed("quality") {
+		pipelineQuality = *p.Quality
+	}
+	if p.OnConflict != "" && !cmd.Flags().Changed("on-conflict") {
+		pipelineOnConflict = p.OnConflict
+	}
+	if p.Report != "" && !cmd.Flags().Changed("report") {
+		pipelineReport = p.Report
+	}
+}
+
 func applyProfileMetadata(cmd *cobra.Command, p profile.Definition, preserveFlag string, preserveValue *bool, stripFlag string, stripValue *bool) {
 	if p.MetadataMode == "" {
 		return

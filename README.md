@@ -107,6 +107,7 @@ fileconverter-cli --help
 fileconverter-cli help convert
 fileconverter-cli help batch
 fileconverter-cli help watch
+fileconverter-cli help pipeline
 fileconverter-cli help formats
 fileconverter-cli help resize-presets
 ```
@@ -192,6 +193,17 @@ fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossless
 ```
 
+### Pipeline modu (çok adımlı akış)
+```bash
+# Pipeline spec dosyasını çalıştır
+fileconverter-cli pipeline run ./pipeline.json
+
+# Profil ve metadata ile çalıştır, JSON rapor al
+fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-metadata --report json --report-file ./reports/pipeline.json
+```
+
+Örnek spec dosyası: `pipeline.example.json`
+
 ## Komut Referansı
 
 | Komut | Ne yapar | Örnek |
@@ -200,6 +212,7 @@ fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossles
 | `fileconverter-cli convert <dosya>` | Tek dosya dönüşümü | `fileconverter-cli convert input.mp4 --to gif` |
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
 | `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from jpg --to webp` |
+| `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
@@ -273,6 +286,19 @@ fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossles
 | `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
 | `--interval` | - | Klasör tarama aralığı |
 | `--settle` | - | Dosyanın stabil sayılması için bekleme süresi |
+
+### `pipeline run` flag'leri
+
+| Flag | Kısa | Açıklama |
+|---|---|---|
+| `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
+| `--quality` | `-q` | Varsayılan kalite seviyesi (1-100) |
+| `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--preserve-metadata` | - | Metadata bilgisini korumayı dener |
+| `--strip-metadata` | - | Metadata bilgisini temizler |
+| `--report` | - | Rapor formatı: `off`, `txt`, `json` |
+| `--report-file` | - | Raporu belirtilen dosyaya yazar |
+| `--keep-temps` | - | Ara geçici dosyaları silmez |
 
 ### `formats` flag'leri
 
@@ -406,9 +432,10 @@ go run . --help
 ## Proje Yapısı
 ```text
 fileconverter-cli/
-├── cmd/                  # Cobra komutları (convert, batch, watch, formats, interactive)
+├── cmd/                  # Cobra komutları (convert, batch, watch, pipeline, formats, interactive)
 ├── internal/converter/   # Dönüştürme motorları (document, image, audio, video)
 ├── internal/batch/       # Worker pool ve batch yürütme
+├── internal/pipeline/    # Çok adımlı pipeline yürütme
 ├── internal/watch/       # Klasör izleme altyapısı
 ├── internal/config/      # Uygulama ayarları
 ├── internal/installer/   # Bağımlılık kontrol/kurulum yardımcıları
