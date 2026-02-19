@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +20,11 @@ var (
 	batchRecursive  bool
 	batchDryRun     bool
 	batchQuality    int
+	batchOnConflict string
+	batchRetry      int
+	batchRetryDelay time.Duration
+	batchReport     string
+	batchReportFile string
 	batchPreset     string
 	batchWidth      float64
 	batchHeight     float64
@@ -41,10 +48,28 @@ Worker pool kullanarak paralel dönüşüm yapar.
   fileconverter-cli batch ./resimler --from png --to jpg --dry-run
   fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/
   fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
-  fileconverter-cli batch ./fotograflar --from jpg --to webp --width 10 --height 15 --unit cm --dpi 300`,
+  fileconverter-cli batch ./fotograflar --from jpg --to webp --width 10 --height 15 --unit cm --dpi 300
+  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json --report-file ./reports/batch.json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		source := args[0]
+		applyQualityDefault(cmd, "quality", &batchQuality)
+		applyOnConflictDefault(cmd, "on-conflict", &batchOnConflict)
+		applyRetryDefaults(cmd, "retry", &batchRetry, "retry-delay", &batchRetryDelay)
+		applyReportDefault(cmd, "report", &batchReport)
+
+		conflictPolicy := converter.NormalizeConflictPolicy(batchOnConflict)
+		if conflictPolicy == "" {
+			err := fmt.Errorf("gecersiz on-conflict politikasi: %s", batchOnConflict)
+			ui.PrintError(err.Error())
+			return err
+		}
+		reportFormat := batch.NormalizeReportFormat(batchReport)
+		if reportFormat == "" {
+			err := fmt.Errorf("gecersiz report formati: %s", batchReport)
+			ui.PrintError(err.Error())
+			return err
+		}
 
 		// Hedef format kontrolü
 		targetFormat := converter.NormalizeFormat(batchTo)
@@ -139,38 +164,52 @@ Worker pool kullanarak paralel dönüşüm yapar.
 			fmt.Println()
 		}
 
-		// Dry-run modu
-		if batchDryRun {
-			ui.PrintInfo("Ön izleme modu (--dry-run) — dönüşüm yapılmayacak:")
-			fmt.Println()
-			for _, f := range files {
-				outputFile := converter.BuildOutputPath(f, outputDir, targetFormat, "")
-				ui.PrintConversion(f, outputFile)
-			}
-			fmt.Println()
-			ui.PrintInfo(fmt.Sprintf("Toplam %d dosya dönüştürülecek.", len(files)))
-			ui.PrintInfo("Dönüşümü başlatmak için --dry-run flag'ini kaldırın.")
-			return nil
-		}
-
 		// İşleri oluştur
-		jobs := make([]batch.Job, len(files))
-		for i, f := range files {
-			jobs[i] = batch.Job{
+		jobs := make([]batch.Job, 0, len(files))
+		reserved := make(map[string]struct{}, len(files))
+		for _, f := range files {
+			baseOutput := converter.BuildOutputPath(f, outputDir, targetFormat, "")
+			resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, conflictPolicy, reserved)
+			if err != nil {
+				ui.PrintError(err.Error())
+				return err
+			}
+			jobs = append(jobs, batch.Job{
 				InputPath:  f,
-				OutputPath: converter.BuildOutputPath(f, outputDir, targetFormat, ""),
+				OutputPath: resolvedOutput,
 				From:       fromFormat,
 				To:         targetFormat,
+				SkipReason: skipReason,
 				Options: converter.Options{
 					Quality: batchQuality,
 					Verbose: verbose,
 					Resize:  resizeSpec,
 				},
+			})
+		}
+
+		// Dry-run modu
+		if batchDryRun {
+			ui.PrintInfo("Ön izleme modu (--dry-run) — dönüşüm yapılmayacak:")
+			fmt.Println()
+			skipped := 0
+			for _, job := range jobs {
+				if job.SkipReason != "" {
+					skipped++
+					ui.PrintWarning(fmt.Sprintf("Atlanacak: %s (sebep: %s)", job.InputPath, job.SkipReason))
+					continue
+				}
+				ui.PrintConversion(job.InputPath, job.OutputPath)
 			}
+			fmt.Println()
+			ui.PrintInfo(fmt.Sprintf("Toplam %d dosya işlenecek (%d atlanacak).", len(jobs), skipped))
+			ui.PrintInfo("Dönüşümü başlatmak için --dry-run flag'ini kaldırın.")
+			return nil
 		}
 
 		// Worker pool oluştur
 		pool := batch.NewPool(workers)
+		pool.SetRetry(batchRetry, batchRetryDelay)
 
 		// Progress bar
 		pb := ui.NewProgressBar(len(jobs), "Dönüştürülüyor")
@@ -180,21 +219,39 @@ Worker pool kullanarak paralel dönüşüm yapar.
 
 		// Çalıştır
 		fmt.Println()
-		start := time.Now()
+		startedAt := time.Now()
 		results := pool.Execute(jobs)
-		totalDuration := time.Since(start)
+		endedAt := time.Now()
+		totalDuration := endedAt.Sub(startedAt)
 
 		// Sonuçları özetle
 		summary := batch.GetSummary(results, totalDuration)
-		ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Failed, totalDuration)
+		ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Skipped, summary.Failed, totalDuration)
 
 		// Hataları göster
 		if len(summary.Errors) > 0 {
 			ui.PrintError("Başarısız dönüşümler:")
 			for _, e := range summary.Errors {
-				fmt.Printf("  %s %s: %s\n", ui.IconError, e.InputFile, e.Error)
+				fmt.Printf("  %s %s: %s (deneme: %d)\n", ui.IconError, e.InputFile, e.Error, e.Attempts)
 			}
 			fmt.Println()
+		}
+
+		reportText, err := batch.RenderReport(reportFormat, summary, results, startedAt, endedAt)
+		if err != nil {
+			ui.PrintError(fmt.Sprintf("Rapor oluşturulamadı: %s", err.Error()))
+			return err
+		}
+		if reportText != "" {
+			if strings.TrimSpace(batchReportFile) != "" {
+				if err := writeBatchReport(batchReportFile, reportText); err != nil {
+					ui.PrintError(fmt.Sprintf("Rapor dosyaya yazılamadı: %s", err.Error()))
+					return err
+				}
+				ui.PrintInfo(fmt.Sprintf("Rapor yazıldı: %s", batchReportFile))
+			} else {
+				fmt.Println(reportText)
+			}
 		}
 
 		if summary.Failed > 0 {
@@ -211,6 +268,11 @@ func init() {
 	batchCmd.Flags().BoolVarP(&batchRecursive, "recursive", "r", false, "Alt dizinleri de tara")
 	batchCmd.Flags().BoolVar(&batchDryRun, "dry-run", false, "Ön izleme — dönüşüm yapmadan listele")
 	batchCmd.Flags().IntVarP(&batchQuality, "quality", "q", 0, "Kalite seviyesi (1-100)")
+	batchCmd.Flags().StringVar(&batchOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
+	batchCmd.Flags().IntVar(&batchRetry, "retry", 0, "Başarısız işler için otomatik tekrar sayısı")
+	batchCmd.Flags().DurationVar(&batchRetryDelay, "retry-delay", 500*time.Millisecond, "Retry denemeleri arası bekleme (örn: 500ms, 2s)")
+	batchCmd.Flags().StringVar(&batchReport, "report", batch.ReportOff, "Rapor formatı: off, txt, json")
+	batchCmd.Flags().StringVar(&batchReportFile, "report-file", "", "Raporu belirtilen dosyaya yaz")
 	batchCmd.Flags().StringVar(&batchPreset, "preset", "", "Hazır boyut preset'i (ör: story, square, fullhd, 1080x1920)")
 	batchCmd.Flags().Float64Var(&batchWidth, "width", 0, "Manuel hedef genişlik")
 	batchCmd.Flags().Float64Var(&batchHeight, "height", 0, "Manuel hedef yükseklik")
@@ -222,4 +284,58 @@ func init() {
 	batchCmd.MarkFlagRequired("from")
 
 	rootCmd.AddCommand(batchCmd)
+}
+
+func resolveBatchOutputPath(baseOutput, conflictPolicy string, reserved map[string]struct{}) (string, string, error) {
+	exists := func(path string) bool {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		return false
+	}
+
+	_, alreadyReserved := reserved[baseOutput]
+	if conflictPolicy == converter.ConflictOverwrite {
+		reserved[baseOutput] = struct{}{}
+		return baseOutput, "", nil
+	}
+
+	if conflictPolicy == converter.ConflictSkip {
+		if exists(baseOutput) || alreadyReserved {
+			return baseOutput, "output_exists", nil
+		}
+		reserved[baseOutput] = struct{}{}
+		return baseOutput, "", nil
+	}
+
+	if !exists(baseOutput) && !alreadyReserved {
+		reserved[baseOutput] = struct{}{}
+		return baseOutput, "", nil
+	}
+
+	ext := filepath.Ext(baseOutput)
+	base := strings.TrimSuffix(baseOutput, ext)
+	for i := 1; i < 100000; i++ {
+		candidate := fmt.Sprintf("%s (%d)%s", base, i, ext)
+		if _, used := reserved[candidate]; used {
+			continue
+		}
+		if exists(candidate) {
+			continue
+		}
+		reserved[candidate] = struct{}{}
+		return candidate, "", nil
+	}
+
+	return "", "", fmt.Errorf("uygun cikti dosya adi bulunamadi: %s", baseOutput)
+}
+
+func writeBatchReport(path, content string) error {
+	reportDir := filepath.Dir(path)
+	if reportDir != "" && reportDir != "." {
+		if err := os.MkdirAll(reportDir, 0755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(content), 0644)
 }

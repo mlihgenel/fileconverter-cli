@@ -15,6 +15,7 @@ var (
 	toFormat          string
 	quality           int
 	customName        string
+	convertOnConflict string
 	convertPreset     string
 	convertWidth      float64
 	convertHeight     float64
@@ -41,6 +42,8 @@ var convertCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFile := args[0]
+		applyQualityDefault(cmd, "quality", &quality)
+		applyOnConflictDefault(cmd, "on-conflict", &convertOnConflict)
 
 		// Dosya varlık kontrolü
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
@@ -95,6 +98,15 @@ var convertCmd = &cobra.Command{
 
 		// Çıktı yolunu oluştur
 		outputFile := converter.BuildOutputPath(inputFile, outputDir, targetFormat, customName)
+		outputFile, skip, err := converter.ResolveOutputPathConflict(outputFile, convertOnConflict)
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
+		if skip {
+			ui.PrintWarning(fmt.Sprintf("Çıktı dosyası mevcut, atlandı: %s", outputFile))
+			return nil
+		}
 
 		// Dönüşüm bilgisi
 		if verbose {
@@ -146,6 +158,7 @@ func init() {
 	convertCmd.Flags().StringVarP(&toFormat, "to", "t", "", "Hedef format (zorunlu, ör: pdf, docx, mp3)")
 	convertCmd.Flags().IntVarP(&quality, "quality", "q", 0, "Kalite seviyesi (1-100, görsel/ses dönüşümleri için)")
 	convertCmd.Flags().StringVarP(&customName, "name", "n", "", "Çıktı dosya adı (uzantısız)")
+	convertCmd.Flags().StringVar(&convertOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
 	convertCmd.Flags().StringVar(&convertPreset, "preset", "", "Hazır boyut preset'i (ör: story, square, fullhd, 1080x1920)")
 	convertCmd.Flags().Float64Var(&convertWidth, "width", 0, "Manuel hedef genişlik")
 	convertCmd.Flags().Float64Var(&convertHeight, "height", 0, "Manuel hedef yükseklik")

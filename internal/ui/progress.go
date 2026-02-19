@@ -185,12 +185,15 @@ func PrintTable(headers []string, rows [][]string) {
 }
 
 // PrintBatchSummary toplu iş özetini yazdırır
-func PrintBatchSummary(total, succeeded, failed int, duration time.Duration) {
+func PrintBatchSummary(total, succeeded, skipped, failed int, duration time.Duration) {
 	fmt.Println()
 	fmt.Printf("  %s %sToplu Dönüşüm Tamamlandı%s\n", IconDone, Bold, Reset)
 	fmt.Println("  " + strings.Repeat("─", 40))
 	fmt.Printf("  Toplam:    %s%d%s dosya\n", Cyan, total, Reset)
 	fmt.Printf("  Başarılı:  %s%d%s dosya\n", Green, succeeded, Reset)
+	if skipped > 0 {
+		fmt.Printf("  Atlanan:   %s%d%s dosya\n", Yellow, skipped, Reset)
+	}
 	if failed > 0 {
 		fmt.Printf("  Başarısız: %s%d%s dosya\n", Red, failed, Reset)
 	}

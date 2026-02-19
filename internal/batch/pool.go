@@ -19,19 +19,26 @@ type Job struct {
 	From       string
 	To         string
 	Options    converter.Options
+	SkipReason string
 }
 
 // JobResult bir işin sonucunu tutar
 type JobResult struct {
-	Job      Job
-	Success  bool
-	Error    error
-	Duration time.Duration
+	Job        Job
+	Success    bool
+	Skipped    bool
+	Attempts   int
+	OutputSize int64
+	SkipReason string
+	Error      error
+	Duration   time.Duration
 }
 
 // Pool worker pool'u yönetir
 type Pool struct {
 	Workers    int
+	RetryMax   int
+	RetryDelay time.Duration
 	Results    []JobResult
 	mu         sync.Mutex
 	processed  atomic.Int64
@@ -51,7 +58,20 @@ func NewPool(workers int) *Pool {
 	}
 
 	return &Pool{
-		Workers: workers,
+		Workers:    workers,
+		RetryDelay: 500 * time.Millisecond,
+	}
+}
+
+// SetRetry retry davranışını ayarlar.
+func (p *Pool) SetRetry(max int, delay time.Duration) {
+	if max < 0 {
+		max = 0
+	}
+	p.RetryMax = max
+
+	if delay >= 0 {
+		p.RetryDelay = delay
 	}
 }
 
@@ -120,12 +140,23 @@ func (p *Pool) Execute(jobs []Job) []JobResult {
 func (p *Pool) processJob(job Job) JobResult {
 	start := time.Now()
 
+	if job.SkipReason != "" {
+		return JobResult{
+			Job:        job,
+			Skipped:    true,
+			Success:    false,
+			SkipReason: job.SkipReason,
+			Duration:   time.Since(start),
+		}
+	}
+
 	// Converter bul
 	conv, err := converter.FindConverter(job.From, job.To)
 	if err != nil {
 		return JobResult{
 			Job:      job,
 			Success:  false,
+			Attempts: 1,
 			Error:    err,
 			Duration: time.Since(start),
 		}
@@ -137,18 +168,46 @@ func (p *Pool) processJob(job Job) JobResult {
 		return JobResult{
 			Job:      job,
 			Success:  false,
+			Attempts: 1,
 			Error:    fmt.Errorf("çıktı dizini oluşturulamadı: %w", err),
 			Duration: time.Since(start),
 		}
 	}
 
-	// Dönüşümü yap
-	err = conv.Convert(job.InputPath, job.OutputPath, job.Options)
+	var lastErr error
+	attempts := p.RetryMax + 1
+	if attempts <= 0 {
+		attempts = 1
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		// Dönüşümü yap
+		err = conv.Convert(job.InputPath, job.OutputPath, job.Options)
+		if err == nil {
+			size := int64(0)
+			if info, statErr := os.Stat(job.OutputPath); statErr == nil {
+				size = info.Size()
+			}
+			return JobResult{
+				Job:        job,
+				Success:    true,
+				Attempts:   attempt,
+				OutputSize: size,
+				Duration:   time.Since(start),
+			}
+		}
+
+		lastErr = err
+		if attempt < attempts && p.RetryDelay > 0 {
+			time.Sleep(p.RetryDelay)
+		}
+	}
 
 	return JobResult{
 		Job:      job,
-		Success:  err == nil,
-		Error:    err,
+		Success:  false,
+		Attempts: attempts,
+		Error:    lastErr,
 		Duration: time.Since(start),
 	}
 }
@@ -157,6 +216,7 @@ func (p *Pool) processJob(job Job) JobResult {
 type Summary struct {
 	Total     int
 	Succeeded int
+	Skipped   int
 	Failed    int
 	Duration  time.Duration
 	Errors    []JobError
@@ -166,6 +226,7 @@ type Summary struct {
 type JobError struct {
 	InputFile string
 	Error     string
+	Attempts  int
 }
 
 // GetSummary iş sonuçlarından özet oluşturur
@@ -178,11 +239,18 @@ func GetSummary(results []JobResult, totalDuration time.Duration) Summary {
 	for _, r := range results {
 		if r.Success {
 			s.Succeeded++
+		} else if r.Skipped {
+			s.Skipped++
 		} else {
 			s.Failed++
+			msg := "bilinmeyen hata"
+			if r.Error != nil {
+				msg = r.Error.Error()
+			}
 			s.Errors = append(s.Errors, JobError{
 				InputFile: r.Job.InputPath,
-				Error:     r.Error.Error(),
+				Error:     msg,
+				Attempts:  r.Attempts,
 			})
 		}
 	}

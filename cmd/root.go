@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mlihgenel/fileconverter-cli/internal/config"
 	"github.com/spf13/cobra"
 
 	// Converter modüllerini kaydet
@@ -20,6 +21,9 @@ var (
 
 	appVersion = "dev"
 	appDate    = ""
+
+	activeProjectConfig     *config.ProjectConfig
+	activeProjectConfigPath string
 )
 
 // SetVersionInfo build-time version bilgisini ayarlar
@@ -66,9 +70,25 @@ Desteklenen kategoriler:
   fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
   fileconverter-cli convert klip.mp4 --to gif --quality 80
   fileconverter-cli batch ./belgeler --from md --to pdf
+  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json
+  fileconverter-cli watch ./incoming --from jpg --to webp
   fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		cfg, cfgPath, err := config.LoadProjectConfig(wd)
+		if err != nil {
+			return err
+		}
+		activeProjectConfig = cfg
+		activeProjectConfigPath = cfgPath
+
+		return applyRootDefaults(cmd)
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Argümansız çalıştırıldığında interaktif mod başlat
 		return RunInteractive()
