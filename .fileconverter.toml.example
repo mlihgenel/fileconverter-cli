@@ -1,0 +1,7 @@
+default_output = "./output"
+workers = 8
+quality = 85
+on_conflict = "versioned"
+retry = 2
+retry_delay = "1s"
+report_format = "json"

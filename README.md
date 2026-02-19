@@ -48,6 +48,10 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Batch dönüşüm (dizin veya glob pattern).
 - Paralel işleme (`--workers`) ile yüksek performans.
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
+- Çakışma politikası (`--on-conflict`: `overwrite`, `skip`, `versioned`).
+- Otomatik retry (`--retry`, `--retry-delay`) ve raporlama (`--report`, `--report-file`).
+- Klasör izleme ile otomatik dönüşüm (`watch` komutu).
+- Proje bazlı ayarlar: `.fileconverter.toml` (flag > env > project config > default).
 - Harici bağımlılık kontrolü (FFmpeg, LibreOffice, Pandoc).
 - Format alias desteği (`jpeg -> jpg`, `tiff -> tif`, `markdown -> md`).
 
@@ -100,6 +104,7 @@ go build -o fileconverter-cli.exe .
 fileconverter-cli --help
 fileconverter-cli help convert
 fileconverter-cli help batch
+fileconverter-cli help watch
 fileconverter-cli help formats
 fileconverter-cli help resize-presets
 ```
@@ -159,6 +164,18 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 
 # Toplu olarak story ölçüsüne getir
 fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
+
+# Çakışma ve retry ile JSON rapor üret
+fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
+```
+
+### Watch modu (otomatik dönüşüm)
+```bash
+# incoming klasörünü izle, yeni jpg dosyalarını webp yap
+fileconverter-cli watch ./incoming --from jpg --to webp
+
+# Alt dizinlerle birlikte izle
+fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 ```
 
 ## Komut Referansı
@@ -168,6 +185,7 @@ fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-m
 | `fileconverter-cli` | İnteraktif TUI modunu başlatır | `fileconverter-cli` |
 | `fileconverter-cli convert <dosya>` | Tek dosya dönüşümü | `fileconverter-cli convert input.mp4 --to gif` |
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
+| `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from jpg --to webp` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
@@ -190,6 +208,7 @@ fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-m
 | `--to` | `-t` | Hedef format (zorunlu) |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--name` | `-n` | Çıktı dosya adı (uzantısız) |
+| `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
 | `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
 | `--width` | - | Manuel genişlik değeri |
 | `--height` | - | Manuel yükseklik değeri |
@@ -206,12 +225,31 @@ fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-m
 | `--recursive` | `-r` | Alt dizinleri de tara |
 | `--dry-run` | - | Dönüştürmeden önce planı göster |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
+| `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--retry` | - | Başarısız işler için otomatik tekrar sayısı |
+| `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
+| `--report` | - | Rapor formatı: `off`, `txt`, `json` |
+| `--report-file` | - | Raporu belirtilen dosyaya yazar |
 | `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
 | `--width` | - | Manuel genişlik değeri |
 | `--height` | - | Manuel yükseklik değeri |
 | `--unit` | - | Manuel birim (`px` veya `cm`) |
 | `--dpi` | - | `cm` kullanıldığında DPI değeri |
 | `--resize-mode` | - | Boyutlandırma modu: `pad`, `fit`, `fill`, `stretch` |
+
+### `watch` flag'leri
+
+| Flag | Kısa | Açıklama |
+|---|---|---|
+| `--from` | `-f` | Kaynak format (zorunlu) |
+| `--to` | `-t` | Hedef format (zorunlu) |
+| `--recursive` | `-r` | Alt dizinleri de izle |
+| `--quality` | `-q` | Kalite seviyesi (1-100) |
+| `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--retry` | - | Başarısız işler için otomatik tekrar sayısı |
+| `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
+| `--interval` | - | Klasör tarama aralığı |
+| `--settle` | - | Dosyanın stabil sayılması için bekleme süresi |
 
 ### `formats` flag'leri
 
@@ -263,6 +301,37 @@ Uygulama interaktif modda eksik araçları kontrol eder ve kurulum için yönlen
 - Bu dosyada ilk çalıştırma bilgisi ve varsayılan çıktı dizini tutulur.
 - İnteraktif moddan varsayılan çıktı dizinini değiştirebilirsiniz.
 
+### Proje bazlı yapılandırma (`.fileconverter.toml`)
+
+CLI, çalışma dizininden başlayıp üst dizinlere çıkarak `.fileconverter.toml` arar.
+Hazır örnek için: `.fileconverter.toml.example` dosyasını kopyalayabilirsiniz.
+
+Örnek:
+```toml
+default_output = "./output"
+workers = 8
+quality = 85
+on_conflict = "versioned"
+retry = 2
+retry_delay = "1s"
+report_format = "json"
+```
+
+Öncelik sırası:
+1. CLI flag
+2. Environment variable
+3. `.fileconverter.toml`
+4. Uygulama varsayılanı
+
+Desteklenen environment variable'lar:
+- `FILECONVERTER_OUTPUT`
+- `FILECONVERTER_WORKERS`
+- `FILECONVERTER_QUALITY`
+- `FILECONVERTER_ON_CONFLICT`
+- `FILECONVERTER_RETRY`
+- `FILECONVERTER_RETRY_DELAY`
+- `FILECONVERTER_REPORT`
+
 ## Sorun Giderme
 
 ### `command not found: fileconverter-cli`
@@ -305,9 +374,10 @@ go run . --help
 ## Proje Yapısı
 ```text
 fileconverter-cli/
-├── cmd/                  # Cobra komutları (convert, batch, formats, interactive)
+├── cmd/                  # Cobra komutları (convert, batch, watch, formats, interactive)
 ├── internal/converter/   # Dönüştürme motorları (document, image, audio, video)
 ├── internal/batch/       # Worker pool ve batch yürütme
+├── internal/watch/       # Klasör izleme altyapısı
 ├── internal/config/      # Uygulama ayarları
 ├── internal/installer/   # Bağımlılık kontrol/kurulum yardımcıları
 ├── internal/ui/          # Ortak terminal UI yardımcıları
