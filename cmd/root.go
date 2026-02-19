@@ -75,6 +75,7 @@ Desteklenen kategoriler:
   fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json
   fileconverter-cli watch ./incoming --from jpg --to webp
   fileconverter-cli pipeline run ./pipeline.json --profile social-story
+  fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
   fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,

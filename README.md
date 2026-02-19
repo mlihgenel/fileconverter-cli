@@ -108,6 +108,7 @@ fileconverter-cli help convert
 fileconverter-cli help batch
 fileconverter-cli help watch
 fileconverter-cli help pipeline
+fileconverter-cli help video
 fileconverter-cli help formats
 fileconverter-cli help resize-presets
 ```
@@ -204,6 +205,15 @@ fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-me
 
 Örnek spec dosyası: `pipeline.example.json`
 
+### Video trim
+```bash
+# 5. saniyeden başlayıp 10 saniye kes
+fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
+
+# Belirli aralığı kes ve yeniden encode et
+fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
+```
+
 ## Komut Referansı
 
 | Komut | Ne yapar | Örnek |
@@ -213,6 +223,7 @@ fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-me
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
 | `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from jpg --to webp` |
 | `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
+| `fileconverter-cli video trim <dosya>` | Videoyu zaman aralığına göre keser | `fileconverter-cli video trim input.mp4 --duration 10` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
@@ -299,6 +310,23 @@ fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-me
 | `--report` | - | Rapor formatı: `off`, `txt`, `json` |
 | `--report-file` | - | Raporu belirtilen dosyaya yazar |
 | `--keep-temps` | - | Ara geçici dosyaları silmez |
+
+### `video trim` flag'leri
+
+| Flag | Kısa | Açıklama |
+|---|---|---|
+| `--start` | - | Başlangıç zamanı (örn: `00:00:05`) |
+| `--end` | - | Bitiş zamanı (`--duration` ile birlikte kullanılamaz) |
+| `--duration` | - | Kesilecek süre (örn: `10`, `00:00:10`) |
+| `--codec` | - | `copy` veya `reencode` |
+| `--to` | - | Hedef format (`mp4`, `mov` vb.) |
+| `--output-file` | - | Tam çıktı dosya yolu |
+| `--name` | `-n` | Çıktı dosya adı (uzantısız) |
+| `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
+| `--quality` | `-q` | Reencode modunda kalite seviyesi |
+| `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--preserve-metadata` | - | Metadata bilgisini korumayı dener |
+| `--strip-metadata` | - | Metadata bilgisini temizler |
 
 ### `formats` flag'leri
 
