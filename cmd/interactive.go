@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -12,9 +13,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mlihgenel/fileconverter-cli/internal/batch"
 	"github.com/mlihgenel/fileconverter-cli/internal/config"
 	"github.com/mlihgenel/fileconverter-cli/internal/converter"
 	"github.com/mlihgenel/fileconverter-cli/internal/installer"
+	convwatch "github.com/mlihgenel/fileconverter-cli/internal/watch"
 )
 
 // ========================================
@@ -156,6 +159,7 @@ const (
 	stateResizeManualUnit
 	stateResizeManualDPI
 	stateResizeModeSelect
+	stateWatching
 )
 
 // ========================================
@@ -178,6 +182,7 @@ type interactiveModel struct {
 	// Akış tipi
 	flowIsBatch    bool
 	flowResizeOnly bool
+	flowIsWatch    bool
 
 	// Dönüşüm bilgileri
 	sourceFormat string
@@ -197,7 +202,32 @@ type interactiveModel struct {
 	// Batch
 	batchTotal     int
 	batchSucceeded int
+	batchSkipped   int
 	batchFailed    int
+
+	// CLI varsayılanları
+	defaultQuality    int
+	defaultOnConflict string
+	defaultRetry      int
+	defaultRetryDelay time.Duration
+	defaultReport     string
+	defaultWorkers    int
+
+	// Watch
+	watchRecursive   bool
+	watchInterval    time.Duration
+	watchSettle      time.Duration
+	watchLastPoll    time.Time
+	watchProcessing  bool
+	watcher          *convwatch.Watcher
+	watchTotal       int
+	watchSucceeded   int
+	watchSkipped     int
+	watchFailed      int
+	watchLastStatus  string
+	watchLastError   string
+	watchStartedAt   time.Time
+	watchLastBatchAt time.Time
 
 	// Spinner
 	spinnerIdx  int
@@ -260,6 +290,7 @@ type convertDoneMsg struct {
 type batchDoneMsg struct {
 	total     int
 	succeeded int
+	skipped   int
 	failed    int
 	duration  time.Duration
 }
@@ -268,20 +299,37 @@ type installDoneMsg struct {
 	err error
 }
 
+type watchStartedMsg struct {
+	watcher *convwatch.Watcher
+	err     error
+}
+
+type watchCycleMsg struct {
+	total     int
+	succeeded int
+	skipped   int
+	failed    int
+	err       error
+}
+
 type tickMsg time.Time
 
 func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interactiveModel {
 	homeDir := getHomeDir()
+	defaults := loadInteractiveDefaults()
 
 	initialState := stateMainMenu
 	if firstRun {
 		initialState = stateWelcomeIntro
 	}
 
-	// Varsayılan çıktı dizinini config'den oku
-	outputDir := config.GetDefaultOutputDir()
-	if outputDir == "" {
-		outputDir = filepath.Join(homeDir, "Desktop")
+	// Varsayılan çıktı dizinini CLI/env/project config'den çöz.
+	selectedOutput := strings.TrimSpace(outputDir)
+	if selectedOutput == "" {
+		selectedOutput = config.GetDefaultOutputDir()
+	}
+	if selectedOutput == "" {
+		selectedOutput = filepath.Join(homeDir, "Desktop")
 	}
 
 	return interactiveModel{
@@ -290,6 +338,7 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 		choices: []string{
 			"Dosya Dönüştür",
 			"Toplu Dönüştür (Batch)",
+			"Klasör İzle (Watch)",
 			"Boyutlandır",
 			"Toplu Boyutlandır",
 			"Desteklenen Formatlar",
@@ -297,10 +346,11 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Ayarlar",
 			"Çıkış",
 		},
-		choiceIcons: []string{"🔄", "📦", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
+		choiceIcons: []string{"🔄", "📦", "👀", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
 		choiceDescs: []string{
 			"Tek bir dosyayı başka formata dönüştür",
 			"Dizindeki tüm dosyaları toplu dönüştür",
+			"Klasörde yeni dosyaları izleyip otomatik dönüştür",
 			"Tek dosya için görsel/video boyutlandırma",
 			"Dizindeki dosyalar için toplu boyutlandırma",
 			"Desteklenen format ve dönüşüm yollarını gör",
@@ -308,18 +358,97 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Varsayılan çıktı dizini ve tercihler",
 			"Uygulamadan çık",
 		},
-		browserDir:     outputDir,
-		defaultOutput:  outputDir,
-		width:          80,
-		height:         24,
-		dependencies:   deps,
-		isFirstRun:     firstRun,
-		showCursor:     true,
-		resizeMethod:   "none",
-		resizeModeName: "pad",
-		resizeUnit:     "px",
-		resizeDPIInput: "96",
+		browserDir:        selectedOutput,
+		defaultOutput:     selectedOutput,
+		width:             80,
+		height:            24,
+		dependencies:      deps,
+		isFirstRun:        firstRun,
+		showCursor:        true,
+		defaultQuality:    defaults.Quality,
+		defaultOnConflict: defaults.OnConflict,
+		defaultRetry:      defaults.Retry,
+		defaultRetryDelay: defaults.RetryDelay,
+		defaultReport:     defaults.Report,
+		defaultWorkers:    defaults.Workers,
+		watchInterval:     2 * time.Second,
+		watchSettle:       1500 * time.Millisecond,
+		resizeMethod:      "none",
+		resizeModeName:    "pad",
+		resizeUnit:        "px",
+		resizeDPIInput:    "96",
 	}
+}
+
+type interactiveDefaults struct {
+	Quality    int
+	OnConflict string
+	Retry      int
+	RetryDelay time.Duration
+	Report     string
+	Workers    int
+}
+
+func loadInteractiveDefaults() interactiveDefaults {
+	d := interactiveDefaults{
+		Quality:    0,
+		OnConflict: converter.ConflictVersioned,
+		Retry:      0,
+		RetryDelay: 500 * time.Millisecond,
+		Report:     batch.ReportOff,
+		Workers:    workers,
+	}
+	if d.Workers <= 0 {
+		d.Workers = runtime.NumCPU()
+	}
+
+	if v, ok := readEnvInt(envQuality); ok && v >= 0 {
+		d.Quality = v
+	} else if activeProjectConfig != nil && activeProjectConfig.Quality > 0 {
+		d.Quality = activeProjectConfig.Quality
+	}
+
+	if v := strings.TrimSpace(os.Getenv(envConflict)); v != "" {
+		d.OnConflict = v
+	} else if activeProjectConfig != nil && strings.TrimSpace(activeProjectConfig.OnConflict) != "" {
+		d.OnConflict = activeProjectConfig.OnConflict
+	}
+	if normalized := converter.NormalizeConflictPolicy(d.OnConflict); normalized != "" {
+		d.OnConflict = normalized
+	} else {
+		d.OnConflict = converter.ConflictVersioned
+	}
+
+	if v, ok := readEnvInt(envRetry); ok && v >= 0 {
+		d.Retry = v
+	} else if activeProjectConfig != nil && activeProjectConfig.Retry > 0 {
+		d.Retry = activeProjectConfig.Retry
+	}
+
+	if v, ok := readEnvDuration(envRetryDelay); ok && v >= 0 {
+		d.RetryDelay = v
+	} else if activeProjectConfig != nil && activeProjectConfig.RetryDelay > 0 {
+		d.RetryDelay = activeProjectConfig.RetryDelay
+	}
+
+	if v := strings.TrimSpace(os.Getenv(envReport)); v != "" {
+		d.Report = v
+	} else if activeProjectConfig != nil && strings.TrimSpace(activeProjectConfig.ReportFormat) != "" {
+		d.Report = activeProjectConfig.ReportFormat
+	}
+	if normalized := batch.NormalizeReportFormat(d.Report); normalized != "" {
+		d.Report = normalized
+	} else {
+		d.Report = batch.ReportOff
+	}
+
+	if v, ok := readEnvInt(envWorkers); ok && v > 0 {
+		d.Workers = v
+	} else if activeProjectConfig != nil && activeProjectConfig.Workers > 0 {
+		d.Workers = activeProjectConfig.Workers
+	}
+
+	return d
 }
 
 // ========================================
@@ -344,8 +473,10 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		var watchCmd tea.Cmd
+
 		// Spinner animasyonu
-		if m.state == stateConverting || m.state == stateBatchConverting || m.state == stateWelcomeInstalling || m.state == stateMissingDepInstalling {
+		if m.state == stateConverting || m.state == stateBatchConverting || m.state == stateWelcomeInstalling || m.state == stateMissingDepInstalling || (m.state == stateWatching && m.watchProcessing) {
 			m.spinnerTick++
 			m.spinnerIdx = m.spinnerTick % len(spinnerFrames)
 			// Progress bar pulsing efekti
@@ -380,6 +511,18 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.state == stateWatching && m.watcher != nil && !m.watchProcessing {
+			now := time.Now()
+			if m.watchLastPoll.IsZero() || now.Sub(m.watchLastPoll) >= m.watchInterval {
+				m.watchLastPoll = now
+				m.watchProcessing = true
+				watchCmd = m.doWatchCycle()
+			}
+		}
+
+		if watchCmd != nil {
+			return m, tea.Batch(tickCmd(), watchCmd)
+		}
 		return m, tickCmd()
 
 	case convertDoneMsg:
@@ -398,6 +541,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateBatchDone
 		m.batchTotal = msg.total
 		m.batchSucceeded = msg.succeeded
+		m.batchSkipped = msg.skipped
 		m.batchFailed = msg.failed
 		m.duration = msg.duration
 		return m, nil
@@ -414,13 +558,22 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateConvertDone
 				return m, nil
 			}
-			// Kurulum başarılı — dönüşüme devam et
+			// Kurulum başarılı — tek dosyada dönüşüme devam et, batch/watch'ta klasör seçimine dön.
 			if m.isBatchPending {
-				m.state = stateBatchConverting
+				m.isBatchPending = false
+				m.pendingConvertCmd = nil
+				m.browserDir = m.defaultOutput
+				m.loadBrowserItems()
+				m.cursor = 0
+				m.state = stateBatchBrowser
+				return m, nil
+			}
+			if m.pendingConvertCmd == nil {
+				return m.goToMainMenu(), nil
 			} else {
 				m.state = stateConverting
+				return m, m.pendingConvertCmd
 			}
-			return m, m.pendingConvertCmd
 		}
 
 		// Welcome ekranından geliyoruz
@@ -432,6 +585,41 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		config.MarkFirstRunDone()
 		m.state = stateWelcomeDeps
 		m.cursor = 0
+		return m, nil
+
+	case watchStartedMsg:
+		m.watchProcessing = false
+		if msg.err != nil {
+			m.watchLastError = msg.err.Error()
+			m.resultErr = true
+			m.resultMsg = msg.err.Error()
+			m.state = stateConvertDone
+			return m, nil
+		}
+		m.watcher = msg.watcher
+		m.watchStartedAt = time.Now()
+		m.watchLastStatus = "İzleme aktif."
+		m.watchLastError = ""
+		return m, nil
+
+	case watchCycleMsg:
+		m.watchProcessing = false
+		if msg.err != nil {
+			m.watchLastError = msg.err.Error()
+			m.watchLastStatus = "İzleme hatası oluştu."
+			return m, nil
+		}
+		m.watchLastError = ""
+		m.watchTotal += msg.total
+		m.watchSucceeded += msg.succeeded
+		m.watchSkipped += msg.skipped
+		m.watchFailed += msg.failed
+		if msg.total > 0 {
+			m.watchLastBatchAt = time.Now()
+			m.watchLastStatus = fmt.Sprintf("%d dosya işlendi (ok:%d, atla:%d, hata:%d).", msg.total, msg.succeeded, msg.skipped, msg.failed)
+		} else {
+			m.watchLastStatus = "Yeni dosya bekleniyor..."
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -539,6 +727,8 @@ func (m interactiveModel) getMaxCursor() int {
 		return dirCount // dirCount = son klasör indexı + 1 (dönüştür butonu)
 	case stateResizeManualWidth, stateResizeManualHeight, stateResizeManualDPI:
 		return 0
+	case stateWatching:
+		return 0
 	default:
 		return len(m.choices) - 1
 	}
@@ -612,6 +802,8 @@ func (m interactiveModel) View() string {
 		return m.viewResizeNumericInput("DPI Değeri", m.resizeDPIInput, "Örnek: 300 (cm için önerilir)")
 	case stateResizeModeSelect:
 		return m.viewResizeModeSelect()
+	case stateWatching:
+		return m.viewWatching()
 	default:
 		return ""
 	}
@@ -846,6 +1038,8 @@ func (m interactiveModel) viewFileBrowser() string {
 	// Çıktı bilgisi
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Çıktı: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Ayar: kalite=%d, conflict=%s", m.defaultQuality, m.defaultOnConflict)))
+	b.WriteString("\n")
 	if m.resizeSpec != nil {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("  Boyutlandırma: %s", m.resizeSummary())))
 		b.WriteString("\n")
@@ -966,6 +1160,9 @@ func (m interactiveModel) viewBatchDone() string {
 	content := successStyle.Render("  Toplu Donusum Tamamlandi") + "\n\n"
 	content += fmt.Sprintf("  Toplam:    %d dosya\n", m.batchTotal)
 	content += successStyle.Render(fmt.Sprintf("  Başarılı:  %d dosya\n", m.batchSucceeded))
+	if m.batchSkipped > 0 {
+		content += fmt.Sprintf("  Atlanan:   %d dosya\n", m.batchSkipped)
+	}
 	if m.batchFailed > 0 {
 		content += errorStyle.Render(fmt.Sprintf("  Başarısız: %d dosya\n", m.batchFailed))
 	}
@@ -1092,27 +1289,29 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 	case stateMainMenu:
 		switch m.cursor {
 		case 0:
-			return m.goToCategorySelect(false, false), nil
+			return m.goToCategorySelect(false, false, false), nil
 		case 1:
-			return m.goToCategorySelect(true, false), nil
+			return m.goToCategorySelect(true, false, false), nil
 		case 2:
-			return m.goToCategorySelect(false, true), nil
+			return m.goToCategorySelect(true, false, true), nil
 		case 3:
-			return m.goToCategorySelect(true, true), nil
+			return m.goToCategorySelect(false, true, false), nil
 		case 4:
+			return m.goToCategorySelect(true, true, false), nil
+		case 5:
 			m.state = stateFormats
 			m.cursor = 0
 			return m, nil
-		case 5:
+		case 6:
 			m.state = stateDependencies
 			m.cursor = 0
 			return m, nil
-		case 6:
+		case 7:
 			// Ayarlar
 			m.state = stateSettings
 			m.cursor = 0
 			return m, nil
-		case 7:
+		case 8:
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -1269,6 +1468,12 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// "Dönüştür" butonu
+		if m.flowIsWatch {
+			m.state = stateWatching
+			m.watchLastStatus = "İzleme hazırlanıyor..."
+			m.watchProcessing = true
+			return m, m.startWatch()
+		}
 		m.state = stateBatchConverting
 		return m, m.doBatchConvert()
 
@@ -1341,10 +1546,24 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.categoryIndices = nil
 	m.flowIsBatch = false
 	m.flowResizeOnly = false
+	m.flowIsWatch = false
+	m.watcher = nil
+	m.watchProcessing = false
+	m.watchLastStatus = ""
+	m.watchLastError = ""
+	m.watchTotal = 0
+	m.watchSucceeded = 0
+	m.watchSkipped = 0
+	m.watchFailed = 0
+	m.watchLastPoll = time.Time{}
+	m.watchStartedAt = time.Time{}
+	m.watchLastBatchAt = time.Time{}
+	m.batchSkipped = 0
 	m.resetResizeState()
 	m.choices = []string{
 		"Dosya Dönüştür",
 		"Toplu Dönüştür (Batch)",
+		"Klasör İzle (Watch)",
 		"Boyutlandır",
 		"Toplu Boyutlandır",
 		"Desteklenen Formatlar",
@@ -1352,10 +1571,11 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 		"Ayarlar",
 		"Çıkış",
 	}
-	m.choiceIcons = []string{"🔄", "📦", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
+	m.choiceIcons = []string{"🔄", "📦", "👀", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
 	m.choiceDescs = []string{
 		"Tek bir dosyayı başka formata dönüştür",
 		"Dizindeki tüm dosyaları toplu dönüştür",
+		"Klasörde yeni dosyaları izleyip otomatik dönüştür",
 		"Tek dosya için görsel/video boyutlandırma",
 		"Dizindeki dosyalar için toplu boyutlandırma",
 		"Desteklenen format ve dönüşüm yollarını gör",
@@ -1371,7 +1591,7 @@ func (m interactiveModel) goBack() interactiveModel {
 	case stateSelectCategory:
 		return m.goToMainMenu()
 	case stateSelectSourceFormat:
-		return m.goToCategorySelect(false, m.flowResizeOnly)
+		return m.goToCategorySelect(false, m.flowResizeOnly, false)
 	case stateSelectTargetFormat:
 		return m.goToSourceFormatSelect(false)
 	case stateFileBrowser:
@@ -1382,7 +1602,7 @@ func (m interactiveModel) goBack() interactiveModel {
 	case stateBatchSelectCategory:
 		return m.goToMainMenu()
 	case stateBatchSelectSourceFormat:
-		return m.goToCategorySelect(true, m.flowResizeOnly)
+		return m.goToCategorySelect(true, m.flowResizeOnly, m.flowIsWatch)
 	case stateBatchSelectTargetFormat:
 		return m.goToSourceFormatSelect(true)
 	case stateBatchBrowser:
@@ -1421,6 +1641,14 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.state = stateSettings
 		m.cursor = 0
 		return m
+	case stateWatching:
+		m.state = stateBatchBrowser
+		m.cursor = 0
+		m.watchProcessing = false
+		m.watcher = nil
+		m.watchLastStatus = ""
+		m.watchLastError = ""
+		return m
 	case stateMissingDep:
 		return m.goToMainMenu()
 	default:
@@ -1428,9 +1656,10 @@ func (m interactiveModel) goBack() interactiveModel {
 	}
 }
 
-func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool) interactiveModel {
+func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWatch bool) interactiveModel {
 	m.flowIsBatch = isBatch
 	m.flowResizeOnly = resizeOnly
+	m.flowIsWatch = isWatch
 	m.cursor = 0
 
 	m.categoryIndices = nil
@@ -1607,16 +1836,27 @@ func (m interactiveModel) doConvert() tea.Cmd {
 
 		// Çıktıyı varsayılan olarak Desktop'a kaydet
 		outputPath := converter.BuildOutputPath(m.selectedFile, m.defaultOutput, m.targetFormat, "")
-		opts := converter.Options{Quality: 0, Verbose: false, Resize: m.resizeSpec}
+		resolvedOutput, skip, err := converter.ResolveOutputPathConflict(outputPath, m.defaultOnConflict)
+		if err != nil {
+			return convertDoneMsg{err: err, duration: time.Since(start)}
+		}
+		if skip {
+			return convertDoneMsg{
+				err:      nil,
+				duration: time.Since(start),
+				output:   fmt.Sprintf("Atlandı (çakışma): %s", resolvedOutput),
+			}
+		}
+		opts := converter.Options{Quality: m.defaultQuality, Verbose: false, Resize: m.resizeSpec}
 
 		// Çıktı dizininin var olduğundan emin ol
-		os.MkdirAll(filepath.Dir(outputPath), 0755)
+		os.MkdirAll(filepath.Dir(resolvedOutput), 0755)
 
-		err = conv.Convert(m.selectedFile, outputPath, opts)
+		err = conv.Convert(m.selectedFile, resolvedOutput, opts)
 		return convertDoneMsg{
 			err:      err,
 			duration: time.Since(start),
-			output:   outputPath,
+			output:   resolvedOutput,
 		}
 	}
 }
@@ -1638,31 +1878,121 @@ func (m interactiveModel) doBatchConvert() tea.Cmd {
 		}
 
 		succeeded := 0
+		skipped := 0
 		failed := 0
 		total := len(files)
+		reserved := make(map[string]struct{}, len(files))
 
+		jobs := make([]batch.Job, 0, len(files))
 		for _, f := range files {
-			conv, err := converter.FindConverter(m.sourceFormat, m.targetFormat)
+			baseOutput := converter.BuildOutputPath(f, m.defaultOutput, m.targetFormat, "")
+			resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, m.defaultOnConflict, reserved)
 			if err != nil {
 				failed++
 				continue
 			}
+			jobs = append(jobs, batch.Job{
+				InputPath:  f,
+				OutputPath: resolvedOutput,
+				From:       m.sourceFormat,
+				To:         m.targetFormat,
+				SkipReason: skipReason,
+				Options: converter.Options{
+					Quality: m.defaultQuality,
+					Verbose: false,
+					Resize:  m.resizeSpec,
+				},
+			})
+		}
 
-			outputPath := converter.BuildOutputPath(f, m.defaultOutput, m.targetFormat, "")
-			opts := converter.Options{Quality: 0, Verbose: false, Resize: m.resizeSpec}
+		pool := batch.NewPool(m.defaultWorkers)
+		pool.SetRetry(m.defaultRetry, m.defaultRetryDelay)
+		results := pool.Execute(jobs)
+		summary := batch.GetSummary(results, time.Since(start))
+		succeeded = summary.Succeeded
+		skipped = summary.Skipped
+		failed += summary.Failed
 
-			if err := conv.Convert(f, outputPath, opts); err != nil {
-				failed++
-			} else {
-				succeeded++
+		if m.defaultReport != batch.ReportOff {
+			reportText, err := batch.RenderReport(m.defaultReport, summary, results, start, time.Now())
+			if err == nil && strings.TrimSpace(reportText) != "" {
+				reportPath := filepath.Join(m.defaultOutput, fmt.Sprintf("batch-report-%d.%s", time.Now().Unix(), m.defaultReport))
+				_ = writeBatchReport(reportPath, reportText)
 			}
 		}
 
 		return batchDoneMsg{
 			total:     total,
 			succeeded: succeeded,
+			skipped:   skipped,
 			failed:    failed,
 			duration:  time.Since(start),
+		}
+	}
+}
+
+func (m interactiveModel) startWatch() tea.Cmd {
+	sourceDir := m.browserDir
+	if strings.TrimSpace(sourceDir) == "" {
+		sourceDir = m.defaultOutput
+	}
+
+	return func() tea.Msg {
+		w := convwatch.NewWatcher(sourceDir, m.sourceFormat, m.watchRecursive, m.watchSettle)
+		if err := w.Bootstrap(); err != nil {
+			return watchStartedMsg{err: err}
+		}
+		return watchStartedMsg{watcher: w}
+	}
+}
+
+func (m interactiveModel) doWatchCycle() tea.Cmd {
+	if m.watcher == nil {
+		return func() tea.Msg {
+			return watchCycleMsg{}
+		}
+	}
+
+	return func() tea.Msg {
+		files, err := m.watcher.Poll(time.Now())
+		if err != nil {
+			return watchCycleMsg{err: err}
+		}
+		if len(files) == 0 {
+			return watchCycleMsg{}
+		}
+
+		jobs := make([]batch.Job, 0, len(files))
+		reserved := make(map[string]struct{}, len(files))
+		for _, f := range files {
+			baseOutput := converter.BuildOutputPath(f, m.defaultOutput, m.targetFormat, "")
+			resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, m.defaultOnConflict, reserved)
+			if err != nil {
+				return watchCycleMsg{err: err}
+			}
+			jobs = append(jobs, batch.Job{
+				InputPath:  f,
+				OutputPath: resolvedOutput,
+				From:       m.sourceFormat,
+				To:         m.targetFormat,
+				SkipReason: skipReason,
+				Options: converter.Options{
+					Quality: m.defaultQuality,
+					Verbose: false,
+				},
+			})
+		}
+
+		pool := batch.NewPool(m.defaultWorkers)
+		pool.SetRetry(m.defaultRetry, m.defaultRetryDelay)
+		results := pool.Execute(jobs)
+		summary := batch.GetSummary(results, 0)
+
+		return watchCycleMsg{
+			total:     summary.Total,
+			succeeded: summary.Succeeded,
+			skipped:   summary.Skipped,
+			failed:    summary.Failed,
 		}
 	}
 }
@@ -1929,6 +2259,19 @@ func (m interactiveModel) viewSettings() string {
 	b.WriteString(pathStyle.Render("  " + m.defaultOutput))
 	b.WriteString("\n\n")
 
+	b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render("  CLI varsayılanları (env/project config):"))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  workers: %d", m.defaultWorkers)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  quality: %d", m.defaultQuality)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  on-conflict: %s", m.defaultOnConflict)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  retry: %d (%s)", m.defaultRetry, m.defaultRetryDelay)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  report: %s", m.defaultReport)))
+	b.WriteString("\n\n")
+
 	options := []string{"Varsayilan dizini degistir", "Ana menuye don"}
 	for i, opt := range options {
 		if i == m.cursor {
@@ -2074,11 +2417,16 @@ func (m interactiveModel) viewBatchBrowser() string {
 
 	// Breadcrumb
 	cat := categories[m.selectedCategory]
-	crumb := fmt.Sprintf("  %s %s › %s -> %s  (Toplu)",
+	modeLabel := "Toplu"
+	if m.flowIsWatch {
+		modeLabel = "Watch"
+	}
+	crumb := fmt.Sprintf("  %s %s › %s -> %s  (%s)",
 		cat.Icon,
 		cat.Name,
 		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(strings.ToUpper(m.sourceFormat)),
-		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)))
+		lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(strings.ToUpper(m.targetFormat)),
+		modeLabel)
 	b.WriteString(breadcrumbStyle.Render(crumb))
 	b.WriteString("\n\n")
 
@@ -2122,11 +2470,15 @@ func (m interactiveModel) viewBatchBrowser() string {
 
 	// "Dönüştür" butonu
 	b.WriteString("\n")
+	actionLabel := fmt.Sprintf("🚀 Bu dizindeki %d dosyayi donustur", fileCount)
+	if m.flowIsWatch {
+		actionLabel = fmt.Sprintf("👀 Bu dizini izle (.%s -> .%s)", converter.FormatFilterLabel(m.sourceFormat), m.targetFormat)
+	}
 	if m.cursor == dirIdx {
-		btn := fmt.Sprintf("▸ 🚀 Bu dizindeki %d dosyayi donustur", fileCount)
+		btn := "▸ " + actionLabel
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render("  " + btn))
 	} else {
-		btn := fmt.Sprintf("  🚀 Bu dizindeki %d dosyayi donustur", fileCount)
+		btn := "  " + actionLabel
 		b.WriteString(dimStyle.Render("  " + btn))
 	}
 	b.WriteString("\n")
@@ -2136,10 +2488,82 @@ func (m interactiveModel) viewBatchBrowser() string {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  💾 Cikti: %s", shortenPath(m.defaultOutput))))
 	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Ayar: quality=%d, conflict=%s, retry=%d (%s), report=%s",
+		m.defaultQuality, m.defaultOnConflict, m.defaultRetry, m.defaultRetryDelay, m.defaultReport)))
+	b.WriteString("\n")
+	if m.flowIsWatch {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Watch: interval=%s, settle=%s", m.watchInterval, m.watchSettle)))
+		b.WriteString("\n")
+	}
 	if m.resizeSpec != nil {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("  Boyutlandirma: %s", m.resizeSummary())))
 		b.WriteString("\n")
 	}
+
+	return b.String()
+}
+
+func (m interactiveModel) viewWatching() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(" 👀 Watch Modu "))
+	b.WriteString("\n\n")
+
+	sourceDir := m.browserDir
+	if strings.TrimSpace(sourceDir) == "" {
+		sourceDir = m.defaultOutput
+	}
+
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 İzlenen dizin: %s", shortenPath(sourceDir))))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Dönüşüm: .%s -> .%s", converter.FormatFilterLabel(m.sourceFormat), m.targetFormat)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Interval: %s  •  Settle: %s", m.watchInterval, m.watchSettle)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Ayar: quality=%d, conflict=%s, retry=%d (%s)",
+		m.defaultQuality, m.defaultOnConflict, m.defaultRetry, m.defaultRetryDelay)))
+	b.WriteString("\n\n")
+
+	if m.watchLastStatus != "" {
+		b.WriteString(infoStyle.Render("  " + m.watchLastStatus))
+		b.WriteString("\n")
+	}
+	if m.watchLastError != "" {
+		b.WriteString(errorStyle.Render("  Hata: " + m.watchLastError))
+		b.WriteString("\n")
+	}
+	if !m.watchStartedAt.IsZero() {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Başlangıç: %s", m.watchStartedAt.Format("2006-01-02 15:04:05"))))
+		b.WriteString("\n")
+	}
+	if !m.watchLastBatchAt.IsZero() {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Son işlem: %s", m.watchLastBatchAt.Format("15:04:05"))))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(successStyle.Render(fmt.Sprintf("  Başarılı:  %d", m.watchSucceeded)))
+	b.WriteString("\n")
+	if m.watchSkipped > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Atlanan:   %d", m.watchSkipped)))
+		b.WriteString("\n")
+	}
+	if m.watchFailed > 0 {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  Başarısız: %d", m.watchFailed)))
+		b.WriteString("\n")
+	}
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Toplam işlenen: %d", m.watchTotal)))
+	b.WriteString("\n\n")
+
+	if m.watchProcessing {
+		frame := spinnerFrames[m.spinnerIdx]
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  " + frame + " Tarama devam ediyor..."))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Esc: Watch ekranına geri dön  •  q: Ana menü"))
+	b.WriteString("\n")
 
 	return b.String()
 }
