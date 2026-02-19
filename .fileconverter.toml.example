@@ -1,7 +1,9 @@
 default_output = "./output"
 workers = 8
 quality = 85
+profile = "social-story"
 on_conflict = "versioned"
+metadata_mode = "strip"
 retry = 2
 retry_delay = "1s"
 report_format = "json"

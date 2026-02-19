@@ -68,8 +68,10 @@ Desteklenen kategoriler:
   fileconverter-cli convert muzik.mp3 --to wav
   fileconverter-cli convert resim.png --to jpg --quality 90
   fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
+  fileconverter-cli convert klip.mp4 --to mp4 --profile social-story --strip-metadata
   fileconverter-cli convert klip.mp4 --to gif --quality 80
   fileconverter-cli batch ./belgeler --from md --to pdf
+  fileconverter-cli batch ./resimler --from jpg --to webp --profile archive-lossless --preserve-metadata
   fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json
   fileconverter-cli watch ./incoming --from jpg --to webp
   fileconverter-cli resize-presets

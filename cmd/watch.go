@@ -18,9 +18,12 @@ import (
 var (
 	watchTo         string
 	watchFrom       string
+	watchProfile    string
 	watchRecursive  bool
 	watchQuality    int
 	watchOnConflict string
+	watchPreserveMD bool
+	watchStripMD    bool
 	watchRetry      int
 	watchRetryDelay time.Duration
 	watchInterval   time.Duration
@@ -36,14 +39,29 @@ otomatik dönüştürür.
 Örnekler:
   fileconverter-cli watch ./incoming --from jpg --to webp
   fileconverter-cli watch ./videos --from mp4 --to gif --recursive --quality 80
-  fileconverter-cli watch ./inbox --from png --to jpg --on-conflict versioned`,
+  fileconverter-cli watch ./inbox --from png --to jpg --on-conflict versioned
+  fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossless --preserve-metadata`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sourceDir := args[0]
 
+		applyProfileDefault(cmd, "profile", &watchProfile)
 		applyQualityDefault(cmd, "quality", &watchQuality)
 		applyOnConflictDefault(cmd, "on-conflict", &watchOnConflict)
+		applyMetadataDefault(cmd, "preserve-metadata", &watchPreserveMD, "strip-metadata", &watchStripMD)
 		applyRetryDefaults(cmd, "retry", &watchRetry, "retry-delay", &watchRetryDelay)
+
+		if p, ok, err := resolveProfile(watchProfile); err != nil {
+			return err
+		} else if ok {
+			applyProfileToWatch(cmd, p)
+			applyProfileMetadata(cmd, p, "preserve-metadata", &watchPreserveMD, "strip-metadata", &watchStripMD)
+		}
+
+		metadataMode, err := metadataModeFromFlags(watchPreserveMD, watchStripMD)
+		if err != nil {
+			return err
+		}
 
 		targetFormat := converter.NormalizeFormat(watchTo)
 		if targetFormat == "" {
@@ -107,8 +125,9 @@ otomatik dönüştürür.
 						To:         targetFormat,
 						SkipReason: skipReason,
 						Options: converter.Options{
-							Quality: watchQuality,
-							Verbose: verbose,
+							Quality:      watchQuality,
+							Verbose:      verbose,
+							MetadataMode: metadataMode,
 						},
 					})
 				}
@@ -142,9 +161,12 @@ otomatik dönüştürür.
 func init() {
 	watchCmd.Flags().StringVarP(&watchTo, "to", "t", "", "Hedef format (zorunlu)")
 	watchCmd.Flags().StringVarP(&watchFrom, "from", "f", "", "Kaynak format (zorunlu)")
+	watchCmd.Flags().StringVar(&watchProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	watchCmd.Flags().BoolVarP(&watchRecursive, "recursive", "r", false, "Alt dizinleri de izle")
 	watchCmd.Flags().IntVarP(&watchQuality, "quality", "q", 0, "Kalite seviyesi (1-100)")
 	watchCmd.Flags().StringVar(&watchOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
+	watchCmd.Flags().BoolVar(&watchPreserveMD, "preserve-metadata", false, "Metadata bilgisini korumayı dene")
+	watchCmd.Flags().BoolVar(&watchStripMD, "strip-metadata", false, "Metadata bilgisini temizle")
 	watchCmd.Flags().IntVar(&watchRetry, "retry", 0, "Başarısız işler için otomatik tekrar sayısı")
 	watchCmd.Flags().DurationVar(&watchRetryDelay, "retry-delay", 500*time.Millisecond, "Retry denemeleri arası bekleme (örn: 500ms, 2s)")
 	watchCmd.Flags().DurationVar(&watchInterval, "interval", 2*time.Second, "Klasör tarama aralığı")

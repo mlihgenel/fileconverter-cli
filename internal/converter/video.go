@@ -112,6 +112,7 @@ func (v *VideoConverter) Convert(input string, output string, opts Options) erro
 	}
 
 	args = append(args, v.getCodecArgs(to, opts.Quality)...)
+	args = append(args, MetadataFFmpegArgs(opts.MetadataMode)...)
 	args = append(args, output)
 
 	cmd := exec.Command(ffmpegPath, args...)

@@ -13,9 +13,12 @@ import (
 
 var (
 	toFormat          string
+	convertProfile    string
 	quality           int
 	customName        string
 	convertOnConflict string
+	convertPreserveMD bool
+	convertStripMD    bool
 	convertPreset     string
 	convertWidth      float64
 	convertHeight     float64
@@ -38,12 +41,37 @@ var convertCmd = &cobra.Command{
   fileconverter-cli convert dosya.pdf --to txt --name cikti_adi
   fileconverter-cli convert foto.jpg --to png --preset square --resize-mode pad
   fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
-  fileconverter-cli convert foto.jpg --to webp --width 12 --height 18 --unit cm --dpi 300`,
+  fileconverter-cli convert foto.jpg --to webp --width 12 --height 18 --unit cm --dpi 300
+  fileconverter-cli convert klip.mp4 --to mp4 --profile social-story
+  fileconverter-cli convert klip.mov --to mp4 --strip-metadata`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFile := args[0]
+		applyProfileDefault(cmd, "profile", &convertProfile)
 		applyQualityDefault(cmd, "quality", &quality)
 		applyOnConflictDefault(cmd, "on-conflict", &convertOnConflict)
+		applyMetadataDefault(cmd, "preserve-metadata", &convertPreserveMD, "strip-metadata", &convertStripMD)
+
+		if p, ok, err := resolveProfile(convertProfile); err != nil {
+			ui.PrintError(err.Error())
+			return err
+		} else if ok {
+			applyProfileToConvert(cmd, p)
+			applyProfileMetadata(cmd, p, "preserve-metadata", &convertPreserveMD, "strip-metadata", &convertStripMD)
+		}
+
+		metadataMode, err := metadataModeFromFlags(convertPreserveMD, convertStripMD)
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
+
+		conflictPolicy := converter.NormalizeConflictPolicy(convertOnConflict)
+		if conflictPolicy == "" {
+			err := fmt.Errorf("gecersiz on-conflict politikasi: %s", convertOnConflict)
+			ui.PrintError(err.Error())
+			return err
+		}
 
 		// Dosya varlık kontrolü
 		if _, err := os.Stat(inputFile); os.IsNotExist(err) {
@@ -98,7 +126,7 @@ var convertCmd = &cobra.Command{
 
 		// Çıktı yolunu oluştur
 		outputFile := converter.BuildOutputPath(inputFile, outputDir, targetFormat, customName)
-		outputFile, skip, err := converter.ResolveOutputPathConflict(outputFile, convertOnConflict)
+		outputFile, skip, err := converter.ResolveOutputPathConflict(outputFile, conflictPolicy)
 		if err != nil {
 			ui.PrintError(err.Error())
 			return err
@@ -127,10 +155,11 @@ var convertCmd = &cobra.Command{
 		// Dönüşümü yap
 		start := time.Now()
 		opts := converter.Options{
-			Quality: quality,
-			Verbose: verbose,
-			Name:    customName,
-			Resize:  resizeSpec,
+			Quality:      quality,
+			Verbose:      verbose,
+			Name:         customName,
+			Resize:       resizeSpec,
+			MetadataMode: metadataMode,
 		}
 
 		if err := conv.Convert(inputFile, outputFile, opts); err != nil {
@@ -156,9 +185,12 @@ var convertCmd = &cobra.Command{
 
 func init() {
 	convertCmd.Flags().StringVarP(&toFormat, "to", "t", "", "Hedef format (zorunlu, ör: pdf, docx, mp3)")
+	convertCmd.Flags().StringVar(&convertProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	convertCmd.Flags().IntVarP(&quality, "quality", "q", 0, "Kalite seviyesi (1-100, görsel/ses dönüşümleri için)")
 	convertCmd.Flags().StringVarP(&customName, "name", "n", "", "Çıktı dosya adı (uzantısız)")
 	convertCmd.Flags().StringVar(&convertOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
+	convertCmd.Flags().BoolVar(&convertPreserveMD, "preserve-metadata", false, "Metadata bilgisini korumayı dene")
+	convertCmd.Flags().BoolVar(&convertStripMD, "strip-metadata", false, "Metadata bilgisini temizle")
 	convertCmd.Flags().StringVar(&convertPreset, "preset", "", "Hazır boyut preset'i (ör: story, square, fullhd, 1080x1920)")
 	convertCmd.Flags().Float64Var(&convertWidth, "width", 0, "Manuel hedef genişlik")
 	convertCmd.Flags().Float64Var(&convertHeight, "height", 0, "Manuel hedef yükseklik")

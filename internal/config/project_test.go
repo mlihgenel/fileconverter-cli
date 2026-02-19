@@ -18,7 +18,9 @@ func TestLoadProjectConfigFindsParent(t *testing.T) {
 default_output = "./out"
 workers = 4
 quality = 85
+profile = "social-story"
 on_conflict = "versioned"
+metadata_mode = "strip"
 retry = 2
 retry_delay = "1s"
 report_format = "json"
@@ -42,6 +44,12 @@ report_format = "json"
 	}
 	if cfg.Quality != 85 {
 		t.Fatalf("unexpected quality: %d", cfg.Quality)
+	}
+	if cfg.Profile != "social-story" {
+		t.Fatalf("unexpected profile: %s", cfg.Profile)
+	}
+	if cfg.MetadataMode != "strip" {
+		t.Fatalf("unexpected metadata mode: %s", cfg.MetadataMode)
 	}
 	if cfg.Retry != 2 {
 		t.Fatalf("unexpected retry: %d", cfg.Retry)

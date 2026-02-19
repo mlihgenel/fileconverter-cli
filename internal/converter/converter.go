@@ -14,6 +14,8 @@ type Options struct {
 	Verbose bool   // Detaylı çıktı modu
 	Name    string // Çıktı dosya adı (opsiyonel)
 	Resize  *ResizeSpec
+	// MetadataMode: auto, preserve, strip
+	MetadataMode string
 }
 
 // Result dönüşüm sonucunu tutar

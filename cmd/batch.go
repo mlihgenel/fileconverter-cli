@@ -17,10 +17,13 @@ import (
 var (
 	batchTo         string
 	batchFrom       string
+	batchProfile    string
 	batchRecursive  bool
 	batchDryRun     bool
 	batchQuality    int
 	batchOnConflict string
+	batchPreserveMD bool
+	batchStripMD    bool
 	batchRetry      int
 	batchRetryDelay time.Duration
 	batchReport     string
@@ -49,14 +52,31 @@ Worker pool kullanarak paralel dönüşüm yapar.
   fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/
   fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
   fileconverter-cli batch ./fotograflar --from jpg --to webp --width 10 --height 15 --unit cm --dpi 300
-  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json --report-file ./reports/batch.json`,
+  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json --report-file ./reports/batch.json
+  fileconverter-cli batch ./videolar --from mov --to mp4 --profile archive-lossless --preserve-metadata`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		source := args[0]
+		applyProfileDefault(cmd, "profile", &batchProfile)
 		applyQualityDefault(cmd, "quality", &batchQuality)
 		applyOnConflictDefault(cmd, "on-conflict", &batchOnConflict)
+		applyMetadataDefault(cmd, "preserve-metadata", &batchPreserveMD, "strip-metadata", &batchStripMD)
 		applyRetryDefaults(cmd, "retry", &batchRetry, "retry-delay", &batchRetryDelay)
 		applyReportDefault(cmd, "report", &batchReport)
+
+		if p, ok, err := resolveProfile(batchProfile); err != nil {
+			ui.PrintError(err.Error())
+			return err
+		} else if ok {
+			applyProfileToBatch(cmd, p)
+			applyProfileMetadata(cmd, p, "preserve-metadata", &batchPreserveMD, "strip-metadata", &batchStripMD)
+		}
+
+		metadataMode, err := metadataModeFromFlags(batchPreserveMD, batchStripMD)
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
 
 		conflictPolicy := converter.NormalizeConflictPolicy(batchOnConflict)
 		if conflictPolicy == "" {
@@ -181,9 +201,10 @@ Worker pool kullanarak paralel dönüşüm yapar.
 				To:         targetFormat,
 				SkipReason: skipReason,
 				Options: converter.Options{
-					Quality: batchQuality,
-					Verbose: verbose,
-					Resize:  resizeSpec,
+					Quality:      batchQuality,
+					Verbose:      verbose,
+					Resize:       resizeSpec,
+					MetadataMode: metadataMode,
 				},
 			})
 		}
@@ -265,10 +286,13 @@ Worker pool kullanarak paralel dönüşüm yapar.
 func init() {
 	batchCmd.Flags().StringVarP(&batchTo, "to", "t", "", "Hedef format (zorunlu)")
 	batchCmd.Flags().StringVarP(&batchFrom, "from", "f", "", "Kaynak format (zorunlu)")
+	batchCmd.Flags().StringVar(&batchProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	batchCmd.Flags().BoolVarP(&batchRecursive, "recursive", "r", false, "Alt dizinleri de tara")
 	batchCmd.Flags().BoolVar(&batchDryRun, "dry-run", false, "Ön izleme — dönüşüm yapmadan listele")
 	batchCmd.Flags().IntVarP(&batchQuality, "quality", "q", 0, "Kalite seviyesi (1-100)")
 	batchCmd.Flags().StringVar(&batchOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
+	batchCmd.Flags().BoolVar(&batchPreserveMD, "preserve-metadata", false, "Metadata bilgisini korumayı dene")
+	batchCmd.Flags().BoolVar(&batchStripMD, "strip-metadata", false, "Metadata bilgisini temizle")
 	batchCmd.Flags().IntVar(&batchRetry, "retry", 0, "Başarısız işler için otomatik tekrar sayısı")
 	batchCmd.Flags().DurationVar(&batchRetryDelay, "retry-delay", 500*time.Millisecond, "Retry denemeleri arası bekleme (örn: 500ms, 2s)")
 	batchCmd.Flags().StringVar(&batchReport, "report", batch.ReportOff, "Rapor formatı: off, txt, json")

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mlihgenel/fileconverter-cli/internal/converter"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +14,9 @@ const (
 	envOutput     = "FILECONVERTER_OUTPUT"
 	envWorkers    = "FILECONVERTER_WORKERS"
 	envQuality    = "FILECONVERTER_QUALITY"
+	envProfile    = "FILECONVERTER_PROFILE"
 	envConflict   = "FILECONVERTER_ON_CONFLICT"
+	envMetadata   = "FILECONVERTER_METADATA"
 	envRetry      = "FILECONVERTER_RETRY"
 	envRetryDelay = "FILECONVERTER_RETRY_DELAY"
 	envReport     = "FILECONVERTER_REPORT"
@@ -62,6 +65,39 @@ func applyOnConflictDefault(cmd *cobra.Command, flagName string, value *string) 
 	}
 	if activeProjectConfig != nil && strings.TrimSpace(activeProjectConfig.OnConflict) != "" {
 		*value = strings.ToLower(strings.TrimSpace(activeProjectConfig.OnConflict))
+	}
+}
+
+func applyProfileDefault(cmd *cobra.Command, flagName string, value *string) {
+	if cmd.Flags().Changed(flagName) {
+		return
+	}
+	if v := strings.TrimSpace(os.Getenv(envProfile)); v != "" {
+		*value = v
+		return
+	}
+	if activeProjectConfig != nil && strings.TrimSpace(activeProjectConfig.Profile) != "" {
+		*value = strings.TrimSpace(activeProjectConfig.Profile)
+	}
+}
+
+func applyMetadataDefault(cmd *cobra.Command, preserveFlag string, preserveValue *bool, stripFlag string, stripValue *bool) {
+	if cmd.Flags().Changed(preserveFlag) || cmd.Flags().Changed(stripFlag) {
+		return
+	}
+
+	mode := strings.TrimSpace(os.Getenv(envMetadata))
+	if mode == "" && activeProjectConfig != nil {
+		mode = strings.TrimSpace(activeProjectConfig.MetadataMode)
+	}
+	mode = converter.NormalizeMetadataMode(mode)
+	switch mode {
+	case converter.MetadataPreserve:
+		*preserveValue = true
+		*stripValue = false
+	case converter.MetadataStrip:
+		*stripValue = true
+		*preserveValue = false
 	}
 }
 

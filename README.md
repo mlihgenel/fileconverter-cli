@@ -50,6 +50,8 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
 - Çakışma politikası (`--on-conflict`: `overwrite`, `skip`, `versioned`).
 - Otomatik retry (`--retry`, `--retry-delay`) ve raporlama (`--report`, `--report-file`).
+- Hazır profil sistemi (`--profile`: `social-story`, `podcast-clean`, `archive-lossless`).
+- Metadata kontrolü (`--preserve-metadata`, `--strip-metadata`).
 - Klasör izleme ile otomatik dönüşüm (`watch` komutu).
 - Proje bazlı ayarlar: `.fileconverter.toml` (flag > env > project config > default).
 - Harici bağımlılık kontrolü (FFmpeg, LibreOffice, Pandoc).
@@ -146,6 +148,12 @@ fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
 
 # Görseli manuel ölçüyle boyutlandır (cm)
 fileconverter-cli convert fotograf.jpg --to webp --width 12 --height 18 --unit cm --dpi 300
+
+# Profil kullanımı (story çıktı için)
+fileconverter-cli convert klip.mp4 --to mp4 --profile social-story
+
+# Metadata temizleme
+fileconverter-cli convert kamera.mov --to mp4 --strip-metadata
 ```
 
 ### Toplu (batch) dönüşüm
@@ -167,6 +175,9 @@ fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-m
 
 # Çakışma ve retry ile JSON rapor üret
 fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
+
+# Profil + metadata modu ile batch
+fileconverter-cli batch ./videolar --from mp4 --to mp4 --profile social-story --strip-metadata
 ```
 
 ### Watch modu (otomatik dönüşüm)
@@ -176,6 +187,9 @@ fileconverter-cli watch ./incoming --from jpg --to webp
 
 # Alt dizinlerle birlikte izle
 fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
+
+# Profil ile izle
+fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossless
 ```
 
 ## Komut Referansı
@@ -206,9 +220,12 @@ fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 | Flag | Kısa | Açıklama |
 |---|---|---|
 | `--to` | `-t` | Hedef format (zorunlu) |
+| `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--name` | `-n` | Çıktı dosya adı (uzantısız) |
 | `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--preserve-metadata` | - | Metadata bilgisini korumayı dener |
+| `--strip-metadata` | - | Metadata bilgisini temizler |
 | `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
 | `--width` | - | Manuel genişlik değeri |
 | `--height` | - | Manuel yükseklik değeri |
@@ -222,10 +239,13 @@ fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 |---|---|---|
 | `--from` | `-f` | Kaynak format (zorunlu) |
 | `--to` | `-t` | Hedef format (zorunlu) |
+| `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
 | `--recursive` | `-r` | Alt dizinleri de tara |
 | `--dry-run` | - | Dönüştürmeden önce planı göster |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--preserve-metadata` | - | Metadata bilgisini korumayı dener |
+| `--strip-metadata` | - | Metadata bilgisini temizler |
 | `--retry` | - | Başarısız işler için otomatik tekrar sayısı |
 | `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
 | `--report` | - | Rapor formatı: `off`, `txt`, `json` |
@@ -243,9 +263,12 @@ fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 |---|---|---|
 | `--from` | `-f` | Kaynak format (zorunlu) |
 | `--to` | `-t` | Hedef format (zorunlu) |
+| `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
 | `--recursive` | `-r` | Alt dizinleri de izle |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
+| `--preserve-metadata` | - | Metadata bilgisini korumayı dener |
+| `--strip-metadata` | - | Metadata bilgisini temizler |
 | `--retry` | - | Başarısız işler için otomatik tekrar sayısı |
 | `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
 | `--interval` | - | Klasör tarama aralığı |
@@ -263,6 +286,11 @@ fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
 - `fit`: Oranı korur, hedef kutuya sığdırır; çıktı bir kenarda daha küçük kalabilir.
 - `fill`: Oranı korur, hedef kutuyu doldurur; taşan kısmı ortadan kırpar.
 - `stretch`: Oranı korumaz, hedef ölçüye zorla esnetir.
+
+### Profiller
+- `social-story`: story formatı için hızlı preset (`story`, `pad`, orta-yüksek kalite).
+- `podcast-clean`: ses akışlarında daha temiz ve güvenli varsayılanlar.
+- `archive-lossless`: arşiv odaklı kalite/metadata koruma odaklı ayarlar.
 
 ## Desteklenen Formatlar
 
@@ -311,7 +339,9 @@ Hazır örnek için: `.fileconverter.toml.example` dosyasını kopyalayabilirsin
 default_output = "./output"
 workers = 8
 quality = 85
+profile = "social-story"
 on_conflict = "versioned"
+metadata_mode = "strip"
 retry = 2
 retry_delay = "1s"
 report_format = "json"
@@ -327,7 +357,9 @@ Desteklenen environment variable'lar:
 - `FILECONVERTER_OUTPUT`
 - `FILECONVERTER_WORKERS`
 - `FILECONVERTER_QUALITY`
+- `FILECONVERTER_PROFILE`
 - `FILECONVERTER_ON_CONFLICT`
+- `FILECONVERTER_METADATA`
 - `FILECONVERTER_RETRY`
 - `FILECONVERTER_RETRY_DELAY`
 - `FILECONVERTER_REPORT`

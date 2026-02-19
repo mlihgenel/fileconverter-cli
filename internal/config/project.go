@@ -18,7 +18,9 @@ type ProjectConfig struct {
 	DefaultOutput string
 	Workers       int
 	Quality       int
+	Profile       string
 	OnConflict    string
+	MetadataMode  string
 	Retry         int
 	RetryDelay    time.Duration
 	ReportFormat  string
@@ -150,12 +152,24 @@ func assignProjectConfigValue(cfg *ProjectConfig, key, rawValue string) error {
 			return err
 		}
 		cfg.Quality = v
+	case "profile":
+		v, err := parseTomlString(rawValue)
+		if err != nil {
+			return err
+		}
+		cfg.Profile = strings.TrimSpace(v)
 	case "on_conflict":
 		v, err := parseTomlString(rawValue)
 		if err != nil {
 			return err
 		}
 		cfg.OnConflict = strings.ToLower(strings.TrimSpace(v))
+	case "metadata_mode":
+		v, err := parseTomlString(rawValue)
+		if err != nil {
+			return err
+		}
+		cfg.MetadataMode = strings.ToLower(strings.TrimSpace(v))
 	case "retry":
 		v, err := parseTomlInt(rawValue)
 		if err != nil {

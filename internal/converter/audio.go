@@ -64,6 +64,7 @@ func (a *AudioConverter) Convert(input string, output string, opts Options) erro
 
 	// Codec ve kalite ayarları
 	args = append(args, a.getCodecArgs(to, opts.Quality)...)
+	args = append(args, MetadataFFmpegArgs(opts.MetadataMode)...)
 
 	// Verbose değilse sessiz mod
 	if !opts.Verbose {
@@ -71,6 +72,7 @@ func (a *AudioConverter) Convert(input string, output string, opts Options) erro
 		// Rebuild: loglevel should come before -i
 		args = []string{"-loglevel", "error", "-i", input, "-y"}
 		args = append(args, a.getCodecArgs(to, opts.Quality)...)
+		args = append(args, MetadataFFmpegArgs(opts.MetadataMode)...)
 	}
 
 	args = append(args, output)
