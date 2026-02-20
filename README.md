@@ -328,7 +328,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--codec` | - | `copy` veya `reencode` |
 | `--to` | - | Hedef format (`mp4`, `mov` vb.) |
 | `--output-file` | - | Tam çıktı dosya yolu |
-| `--name` | `-n` | Çıktı klip adı (uzantısız) |
+| `--name` | `-n` | Çıktı dosya adı (uzantısız) |
 | `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
 | `--quality` | `-q` | Reencode modunda kalite seviyesi |
 | `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |

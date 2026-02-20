@@ -155,7 +155,7 @@ func init() {
 	videoTrimCmd.Flags().StringVar(&videoTrimMode, "mode", trimModeClip, "İşlem modu: clip veya remove")
 	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "copy", "Codec modu: copy veya reencode")
 	videoTrimCmd.Flags().StringVar(&videoTrimOutputFile, "output-file", "", "Tam çıktı dosya yolu")
-	videoTrimCmd.Flags().StringVarP(&videoTrimName, "name", "n", "", "Çıktı klip adı (uzantısız)")
+	videoTrimCmd.Flags().StringVarP(&videoTrimName, "name", "n", "", "Çıktı dosya adı (uzantısız)")
 	videoTrimCmd.Flags().StringVar(&videoTrimToFormat, "to", "", "Hedef format (örn: mp4, mov)")
 	videoTrimCmd.Flags().StringVar(&videoTrimProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	videoTrimCmd.Flags().IntVarP(&videoTrimQuality, "quality", "q", 0, "Reencode modunda kalite seviyesi (1-100)")
