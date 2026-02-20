@@ -1189,6 +1189,11 @@ func (m interactiveModel) viewConvertDone() string {
 	} else {
 		content := successStyle.Render("  Donusum Tamamlandi") + "\n\n"
 		content += fmt.Sprintf("  Cikti: %s\n", shortenPath(m.resultMsg))
+		if m.flowVideoTrim {
+			content += fmt.Sprintf("  Islem: %s\n", m.videoTrimOperationLabel())
+			content += fmt.Sprintf("  Aralik: baslangic=%s, sure=%s\n", m.trimStartInput, m.trimDurationInput)
+			content += fmt.Sprintf("  Codec: %s\n", strings.ToUpper(m.trimCodec))
+		}
 		content += fmt.Sprintf("  Sure:  %s", formatDuration(m.duration))
 		b.WriteString(resultBoxStyle.Render(content))
 	}
