@@ -32,6 +32,7 @@ func TestVideoTrimDurationToCodecDescriptions(t *testing.T) {
 	m := newInteractiveModel(nil, false)
 	m.state = stateVideoTrimDuration
 	m.trimMode = trimModeRemove
+	m.trimRangeType = trimRangeDuration
 	m.trimDurationInput = "2"
 
 	nextModel, cmd := m.handleEnter()
@@ -48,6 +49,55 @@ func TestVideoTrimDurationToCodecDescriptions(t *testing.T) {
 	}
 	if len(next.choiceDescs) == 0 || !strings.Contains(next.choiceDescs[0], "Aralık silme sonrası") {
 		t.Fatalf("expected remove-specific codec description")
+	}
+}
+
+func TestVideoTrimStartToRangeTypeTransition(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.state = stateVideoTrimStart
+	m.trimStartInput = "23"
+	m.trimRangeType = trimRangeDuration
+
+	nextModel, cmd := m.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no async command for start step")
+	}
+
+	next, ok := nextModel.(interactiveModel)
+	if !ok {
+		t.Fatalf("unexpected model type")
+	}
+	if next.state != stateVideoTrimRangeType {
+		t.Fatalf("expected stateVideoTrimRangeType, got %v", next.state)
+	}
+	if len(next.choices) != 2 {
+		t.Fatalf("expected 2 range type options")
+	}
+}
+
+func TestVideoTrimRangeTypeEndSelection(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.state = stateVideoTrimRangeType
+	m.cursor = 1
+	m.trimStartInput = "23"
+
+	nextModel, cmd := m.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no async command for range type step")
+	}
+
+	next, ok := nextModel.(interactiveModel)
+	if !ok {
+		t.Fatalf("unexpected model type")
+	}
+	if next.trimRangeType != trimRangeEnd {
+		t.Fatalf("expected end range type, got %s", next.trimRangeType)
+	}
+	if next.state != stateVideoTrimDuration {
+		t.Fatalf("expected stateVideoTrimDuration, got %v", next.state)
+	}
+	if strings.TrimSpace(next.trimEndInput) == "" {
+		t.Fatalf("expected suggested end input")
 	}
 }
 

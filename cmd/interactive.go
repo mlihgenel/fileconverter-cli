@@ -162,6 +162,7 @@ const (
 	stateWatching
 	stateVideoTrimMode
 	stateVideoTrimStart
+	stateVideoTrimRangeType
 	stateVideoTrimDuration
 	stateVideoTrimCodec
 )
@@ -281,6 +282,8 @@ type interactiveModel struct {
 	// Video trim
 	trimStartInput    string
 	trimDurationInput string
+	trimEndInput      string
+	trimRangeType     string
 	trimMode          string
 	trimCodec         string
 	trimValidationErr string
@@ -831,7 +834,12 @@ func (m interactiveModel) View() string {
 		return m.viewVideoTrimModeSelect()
 	case stateVideoTrimStart:
 		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Başlangıç (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimStartInput, "Örnek: 23 veya 00:00:23")
+	case stateVideoTrimRangeType:
+		return m.viewVideoTrimRangeTypeSelect()
 	case stateVideoTrimDuration:
+		if m.trimRangeType == trimRangeEnd {
+			return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Bitiş (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimEndInput, "Örnek: 25 veya 00:00:25")
+		}
 		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Süre (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimDurationInput, "Örnek: 2 veya 00:00:02")
 	case stateVideoTrimCodec:
 		return m.viewVideoTrimCodecSelect()
@@ -1191,7 +1199,11 @@ func (m interactiveModel) viewConvertDone() string {
 		content += fmt.Sprintf("  Cikti: %s\n", shortenPath(m.resultMsg))
 		if m.flowVideoTrim {
 			content += fmt.Sprintf("  Islem: %s\n", m.videoTrimOperationLabel())
-			content += fmt.Sprintf("  Aralik: baslangic=%s, sure=%s\n", m.trimStartInput, m.trimDurationInput)
+			if m.trimRangeType == trimRangeEnd {
+				content += fmt.Sprintf("  Aralik: baslangic=%s, bitis=%s\n", m.trimStartInput, m.trimEndInput)
+			} else {
+				content += fmt.Sprintf("  Aralik: baslangic=%s, sure=%s\n", m.trimStartInput, m.trimDurationInput)
+			}
 			content += fmt.Sprintf("  Codec: %s\n", strings.ToUpper(m.trimCodec))
 		}
 		content += fmt.Sprintf("  Sure:  %s", formatDuration(m.duration))
@@ -1415,6 +1427,8 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 					}
 					m.trimStartInput = "0"
 					m.trimDurationInput = "10"
+					m.trimEndInput = ""
+					m.trimRangeType = trimRangeDuration
 					m.trimMode = trimModeClip
 					m.trimCodec = "copy"
 					m.trimValidationErr = ""
@@ -1551,17 +1565,63 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.trimStartInput = normalized
 		m.trimValidationErr = ""
+		m.state = stateVideoTrimRangeType
+		m.choices = []string{"Süre ile (duration)", "Bitiş zamanı ile (end)"}
+		m.choiceIcons = []string{"⏱️", "🏁"}
+		m.choiceDescs = []string{
+			"Başlangıçtan itibaren ne kadar süre alınacağını/silineceğini seçersiniz",
+			"Başlangıç ve bitiş zamanı vererek aralığı net belirlersiniz",
+		}
+		if m.trimRangeType == trimRangeEnd {
+			m.cursor = 1
+		} else {
+			m.trimRangeType = trimRangeDuration
+			m.cursor = 0
+		}
+		return m, nil
+
+	case stateVideoTrimRangeType:
+		if m.cursor == 1 {
+			m.trimRangeType = trimRangeEnd
+			if strings.TrimSpace(m.trimEndInput) == "" {
+				m.trimEndInput = suggestVideoTrimEndFromStart(m.trimStartInput)
+			}
+		} else {
+			m.trimRangeType = trimRangeDuration
+			if strings.TrimSpace(m.trimDurationInput) == "" {
+				m.trimDurationInput = "10"
+			}
+		}
+		m.trimValidationErr = ""
 		m.state = stateVideoTrimDuration
 		m.cursor = 0
 		return m, nil
 
 	case stateVideoTrimDuration:
-		normalized, err := normalizeVideoTrimTime(m.trimDurationInput, false)
-		if err != nil {
-			m.trimValidationErr = "Geçersiz süre değeri"
+		startValue := m.trimStartInput
+		endValue := ""
+		durationValue := ""
+		if m.trimRangeType == trimRangeEnd {
+			normalized, err := normalizeVideoTrimTime(m.trimEndInput, true)
+			if err != nil {
+				m.trimValidationErr = "Geçersiz bitiş değeri"
+				return m, nil
+			}
+			m.trimEndInput = normalized
+			endValue = normalized
+		} else {
+			normalized, err := normalizeVideoTrimTime(m.trimDurationInput, false)
+			if err != nil {
+				m.trimValidationErr = "Geçersiz süre değeri"
+				return m, nil
+			}
+			m.trimDurationInput = normalized
+			durationValue = normalized
+		}
+		if _, _, _, _, _, err := resolveTrimRange(startValue, endValue, durationValue, m.trimMode); err != nil {
+			m.trimValidationErr = err.Error()
 			return m, nil
 		}
-		m.trimDurationInput = normalized
 		m.trimValidationErr = ""
 		m.state = stateVideoTrimCodec
 		m.cursor = 0
@@ -1702,6 +1762,8 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.resetResizeState()
 	m.trimStartInput = ""
 	m.trimDurationInput = ""
+	m.trimEndInput = ""
+	m.trimRangeType = ""
 	m.trimMode = ""
 	m.trimCodec = ""
 	m.trimValidationErr = ""
@@ -1793,8 +1855,13 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
-	case stateVideoTrimDuration:
+	case stateVideoTrimRangeType:
 		m.state = stateVideoTrimStart
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
+	case stateVideoTrimDuration:
+		m.state = stateVideoTrimRangeType
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
@@ -1831,6 +1898,8 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.flowResizeOnly = resizeOnly
 	m.flowIsWatch = isWatch
 	m.flowVideoTrim = false
+	m.trimEndInput = ""
+	m.trimRangeType = ""
 	m.trimMode = ""
 	m.trimValidationErr = ""
 	m.cursor = 0

@@ -15,6 +15,11 @@ import (
 
 var videoTrimInputFormats = []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}
 
+const (
+	trimRangeDuration = "duration"
+	trimRangeEnd      = "end"
+)
+
 func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.flowIsBatch = false
 	m.flowResizeOnly = false
@@ -27,6 +32,8 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.selectedCategory = videoCategoryIndex()
 	m.trimStartInput = "0"
 	m.trimDurationInput = "10"
+	m.trimEndInput = ""
+	m.trimRangeType = trimRangeDuration
 	m.trimMode = trimModeClip
 	m.trimCodec = "copy"
 	m.trimValidationErr = ""
@@ -61,9 +68,14 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 	inputFile := m.selectedFile
 	startInput := m.trimStartInput
 	durationInput := m.trimDurationInput
+	endInput := m.trimEndInput
+	rangeType := m.trimRangeType
 	mode := m.trimMode
 	if normalizeTrimMode(mode) == "" {
 		mode = trimModeClip
+	}
+	if rangeType != trimRangeEnd {
+		rangeType = trimRangeDuration
 	}
 	codec := m.trimCodec
 	quality := m.defaultQuality
@@ -82,11 +94,20 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 		if err != nil {
 			return convertDoneMsg{err: fmt.Errorf("geçersiz başlangıç değeri"), duration: time.Since(started)}
 		}
-		durationValue, err := normalizeVideoTrimTime(durationInput, false)
-		if err != nil {
-			return convertDoneMsg{err: fmt.Errorf("geçersiz süre değeri"), duration: time.Since(started)}
+		endValue := ""
+		durationValue := ""
+		if rangeType == trimRangeEnd {
+			endValue, err = normalizeVideoTrimTime(endInput, true)
+			if err != nil {
+				return convertDoneMsg{err: fmt.Errorf("geçersiz bitiş değeri"), duration: time.Since(started)}
+			}
+		} else {
+			durationValue, err = normalizeVideoTrimTime(durationInput, false)
+			if err != nil {
+				return convertDoneMsg{err: fmt.Errorf("geçersiz süre değeri"), duration: time.Since(started)}
+			}
 		}
-		startValue, _, durationValue, _, _, err = resolveTrimRange(startValue, "", durationValue, mode)
+		startValue, endValue, durationValue, _, _, err = resolveTrimRange(startValue, endValue, durationValue, mode)
 		if err != nil {
 			return convertDoneMsg{err: err, duration: time.Since(started)}
 		}
@@ -127,9 +148,9 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 		}
 
 		if mode == trimModeRemove {
-			err = runTrimRemoveFFmpeg(inputFile, resolvedOutput, startValue, "", durationValue, codec, quality, converter.MetadataAuto, false)
+			err = runTrimRemoveFFmpeg(inputFile, resolvedOutput, startValue, endValue, durationValue, codec, quality, converter.MetadataAuto, false)
 		} else {
-			err = runTrimFFmpeg(inputFile, resolvedOutput, startValue, "", durationValue, codec, quality, converter.MetadataAuto, false)
+			err = runTrimFFmpeg(inputFile, resolvedOutput, startValue, endValue, durationValue, codec, quality, converter.MetadataAuto, false)
 		}
 		return convertDoneMsg{
 			err:      err,
@@ -189,6 +210,9 @@ func (m *interactiveModel) currentVideoTrimInputField() *string {
 	case stateVideoTrimStart:
 		return &m.trimStartInput
 	case stateVideoTrimDuration:
+		if m.trimRangeType == trimRangeEnd {
+			return &m.trimEndInput
+		}
 		return &m.trimDurationInput
 	default:
 		return nil
@@ -244,7 +268,11 @@ func (m interactiveModel) viewVideoTrimCodecSelect() string {
 		b.WriteString(infoStyle.Render(fmt.Sprintf("  Dosya: %s", filepath.Base(m.selectedFile))))
 		b.WriteString("\n")
 	}
-	b.WriteString(infoStyle.Render(fmt.Sprintf("  Başlangıç: %s   Süre: %s", m.trimStartInput, m.trimDurationInput)))
+	if m.trimRangeType == trimRangeEnd {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  Başlangıç: %s   Bitiş: %s", m.trimStartInput, m.trimEndInput)))
+	} else {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  Başlangıç: %s   Süre: %s", m.trimStartInput, m.trimDurationInput)))
+	}
 	b.WriteString("\n\n")
 
 	choices := m.choices
@@ -321,9 +349,48 @@ func (m interactiveModel) viewVideoTrimModeSelect() string {
 	return b.String()
 }
 
+func (m interactiveModel) viewVideoTrimRangeTypeSelect() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(" ◆ Zaman Aralığı Tipi Seçin "))
+	b.WriteString("\n\n")
+
+	for i, choice := range m.choices {
+		icon := ""
+		if i < len(m.choiceIcons) {
+			icon = m.choiceIcons[i]
+		}
+		label := menuLine(icon, choice)
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render("▸ " + label))
+			b.WriteString("\n")
+			if i < len(m.choiceDescs) && m.choiceDescs[i] != "" {
+				b.WriteString(lipgloss.NewStyle().PaddingLeft(7).Foreground(dimTextColor).Italic(true).Render(m.choiceDescs[i]))
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(normalItemStyle.Render("  " + label))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Geri"))
+	b.WriteString("\n")
+	return b.String()
+}
+
 func (m interactiveModel) videoTrimOperationLabel() string {
 	if m.trimMode == trimModeRemove {
 		return "Aralığı Sil"
 	}
 	return "Klip Çıkarma"
+}
+
+func suggestVideoTrimEndFromStart(start string) string {
+	startSec, err := parseVideoTrimToSeconds(strings.TrimSpace(start))
+	if err != nil {
+		return "10"
+	}
+	return formatSecondsForFFmpeg(startSec + 10)
 }
