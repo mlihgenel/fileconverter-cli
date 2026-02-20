@@ -42,10 +42,10 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 ## Özellikler
 - Belge, görsel, ses ve video dönüşümleri.
 - `mp4 -> gif` dahil video dönüşümü.
-- Video klip çıkarma (`video trim`): seçilen zaman aralığını yeni çıktı dosyası olarak üretir, orijinali korur.
+- Video düzenleme (`video trim`): `clip` modunda aralık çıkarır, `remove` modunda aralığı silip kalan parçaları birleştirir.
 - Görsel/video boyutlandırma: manuel (`px`/`cm`) veya hazır preset (`story`, `square`, `fullhd` vb.).
 - Oranı koruyarak dikey/yatay uyarlama (`pad`, `fit`, `fill`, `stretch`); `pad` modunda siyah boşluk desteği.
-- Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Klip Çıkar`, `Boyutlandır`, `Toplu Boyutlandır`.
+- Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Düzenle (Klip/Sil)`, `Boyutlandır`, `Toplu Boyutlandır`.
 - Batch dönüşüm (dizin veya glob pattern).
 - Paralel işleme (`--workers`) ile yüksek performans.
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
@@ -123,7 +123,7 @@ Interaktif ana menü:
 - `Dosya Dönüştür`: format dönüşümü (tek dosya)
 - `Toplu Dönüştür`: format dönüşümü (dizin/glob)
 - `Klasör İzle`: yeni dosyaları otomatik dönüştürme
-- `Video Klip Çıkar`: seçilen zaman aralığını yeni klip dosyası üretme (orijinali korur)
+- `Video Düzenle (Klip/Sil)`: aralık çıkarma veya aralık silme + birleştirme
 - `Boyutlandır`: tek dosya görsel/video boyutlandırma
 - `Toplu Boyutlandır`: dizindeki görsel/video dosyalarını toplu boyutlandırma
 
@@ -208,10 +208,13 @@ fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-me
 
 Örnek spec dosyası: `pipeline.example.json`
 
-### Video klip çıkarma (trim)
+### Video düzenleme (trim)
 ```bash
 # 5. saniyeden başlayıp 10 saniyelik klip çıkar
 fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
+
+# 23-25 saniye aralığını videodan sil ve kalan parçaları birleştir
+fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2
 
 # Belirli aralıktan klip çıkar ve yeniden encode et
 fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
@@ -226,7 +229,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
 | `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from jpg --to webp` |
 | `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
-| `fileconverter-cli video trim <dosya>` | Videodan zaman aralığını yeni klip dosyası olarak çıkarır (orijinali korur) | `fileconverter-cli video trim input.mp4 --duration 10` |
+| `fileconverter-cli video trim <dosya>` | `clip`: aralık çıkarır, `remove`: aralığı siler + birleştirir | `fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
@@ -318,9 +321,10 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 
 | Flag | Kısa | Açıklama |
 |---|---|---|
-| `--start` | - | Klibin başlangıç zamanı (örn: `00:00:05`) |
+| `--mode` | - | İşlem modu: `clip` veya `remove` |
+| `--start` | - | İşlem başlangıç zamanı (örn: `00:00:05`) |
 | `--end` | - | Bitiş zamanı (`--duration` ile birlikte kullanılamaz) |
-| `--duration` | - | Çıkarılacak klibin süresi (örn: `10`, `00:00:10`) |
+| `--duration` | - | İşlem süresi (örn: `10`, `00:00:10`) |
 | `--codec` | - | `copy` veya `reencode` |
 | `--to` | - | Hedef format (`mp4`, `mov` vb.) |
 | `--output-file` | - | Tam çıktı dosya yolu |

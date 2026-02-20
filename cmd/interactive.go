@@ -160,6 +160,7 @@ const (
 	stateResizeManualDPI
 	stateResizeModeSelect
 	stateWatching
+	stateVideoTrimMode
 	stateVideoTrimStart
 	stateVideoTrimDuration
 	stateVideoTrimCodec
@@ -280,6 +281,7 @@ type interactiveModel struct {
 	// Video trim
 	trimStartInput    string
 	trimDurationInput string
+	trimMode          string
 	trimCodec         string
 	trimValidationErr string
 }
@@ -349,7 +351,7 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Dosya Dönüştür",
 			"Toplu Dönüştür (Batch)",
 			"Klasör İzle (Watch)",
-			"Video Klip Çıkar",
+			"Video Düzenle (Klip/Sil)",
 			"Boyutlandır",
 			"Toplu Boyutlandır",
 			"Desteklenen Formatlar",
@@ -362,7 +364,7 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 			"Tek bir dosyayı başka formata dönüştür",
 			"Dizindeki tüm dosyaları toplu dönüştür",
 			"Klasörde yeni dosyaları izleyip otomatik dönüştür",
-			"Videodan seçilen aralığı yeni klip olarak çıkarır (orijinali korur)",
+			"Videodan aralık çıkarır veya aralığı silip kalanları birleştirir",
 			"Tek dosya için görsel/video boyutlandırma",
 			"Dizindeki dosyalar için toplu boyutlandırma",
 			"Desteklenen format ve dönüşüm yollarını gör",
@@ -825,10 +827,12 @@ func (m interactiveModel) View() string {
 		return m.viewResizeModeSelect()
 	case stateWatching:
 		return m.viewWatching()
+	case stateVideoTrimMode:
+		return m.viewVideoTrimModeSelect()
 	case stateVideoTrimStart:
-		return m.viewVideoTrimNumericInput("Video Klip Çıkarma — Başlangıç (sn veya hh:mm:ss)", m.trimStartInput, "Örnek: 23 veya 00:00:23")
+		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Başlangıç (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimStartInput, "Örnek: 23 veya 00:00:23")
 	case stateVideoTrimDuration:
-		return m.viewVideoTrimNumericInput("Video Klip Çıkarma — Süre (sn veya hh:mm:ss)", m.trimDurationInput, "Örnek: 2 veya 00:00:02")
+		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Süre (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimDurationInput, "Örnek: 2 veya 00:00:02")
 	case stateVideoTrimCodec:
 		return m.viewVideoTrimCodecSelect()
 	default:
@@ -984,7 +988,7 @@ func (m interactiveModel) viewFileBrowser() string {
 	cat := categories[m.selectedCategory]
 	crumb := ""
 	if m.flowVideoTrim {
-		crumb = fmt.Sprintf("  ✂️ Video Klip Çıkar › %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Video Seç"))
+		crumb = fmt.Sprintf("  ✂️ Video Düzenle › %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Video Seç"))
 	} else {
 		crumb = fmt.Sprintf("  %s %s › %s › %s",
 			cat.Icon,
@@ -1081,7 +1085,7 @@ func (m interactiveModel) viewFileBrowser() string {
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  Ayar: kalite=%d, conflict=%s", m.defaultQuality, m.defaultOnConflict)))
 	b.WriteString("\n")
 	if m.flowVideoTrim {
-		b.WriteString(dimStyle.Render("  Not: Seçilen aralık yeni klip dosyası olarak çıkarılır, orijinal video korunur"))
+		b.WriteString(dimStyle.Render("  Not: Video seçince önce işlem modu seçilir (klip çıkar / aralığı sil)"))
 		b.WriteString("\n")
 	}
 	if m.resizeSpec != nil {
@@ -1406,10 +1410,17 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 					}
 					m.trimStartInput = "0"
 					m.trimDurationInput = "10"
+					m.trimMode = trimModeClip
 					m.trimCodec = "copy"
 					m.trimValidationErr = ""
-					m.state = stateVideoTrimStart
+					m.state = stateVideoTrimMode
 					m.cursor = 0
+					m.choices = []string{"Klip Çıkar (seçilen aralık)", "Aralığı Sil + Birleştir (kalanı koru)"}
+					m.choiceIcons = []string{"✂️", "🧩"}
+					m.choiceDescs = []string{
+						"Seçtiğiniz aralığı yeni bir klip olarak üretir, orijinali korur",
+						"Seçtiğiniz aralığı videodan çıkarır ve kalan parçaları birleştirir",
+					}
 					return m, nil
 				}
 				// Bağımlılık kontrolü yap
@@ -1516,6 +1527,17 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		m.resizeValidationErr = ""
 		return m.proceedAfterResizeSelection()
 
+	case stateVideoTrimMode:
+		if m.cursor == 1 {
+			m.trimMode = trimModeRemove
+		} else {
+			m.trimMode = trimModeClip
+		}
+		m.trimValidationErr = ""
+		m.state = stateVideoTrimStart
+		m.cursor = 0
+		return m, nil
+
 	case stateVideoTrimStart:
 		normalized, err := normalizeVideoTrimTime(m.trimStartInput, true)
 		if err != nil {
@@ -1540,9 +1562,16 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.choices = []string{"Copy (hızlı)", "Re-encode (uyumlu)"}
 		m.choiceIcons = []string{"⚡", "🎞️"}
-		m.choiceDescs = []string{
-			"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
-			"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
+		if m.trimMode == trimModeRemove {
+			m.choiceDescs = []string{
+				"Aralık silme sonrası kalan parçaları hızlıca birleştirir",
+				"Aralık silme sonrası videoyu yeniden encode ederek daha uyumlu çıktı üretir",
+			}
+		} else {
+			m.choiceDescs = []string{
+				"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
+				"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
+			}
 		}
 		return m, nil
 
@@ -1668,13 +1697,14 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.resetResizeState()
 	m.trimStartInput = ""
 	m.trimDurationInput = ""
+	m.trimMode = ""
 	m.trimCodec = ""
 	m.trimValidationErr = ""
 	m.choices = []string{
 		"Dosya Dönüştür",
 		"Toplu Dönüştür (Batch)",
 		"Klasör İzle (Watch)",
-		"Video Klip Çıkar",
+		"Video Düzenle (Klip/Sil)",
 		"Boyutlandır",
 		"Toplu Boyutlandır",
 		"Desteklenen Formatlar",
@@ -1687,7 +1717,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 		"Tek bir dosyayı başka formata dönüştür",
 		"Dizindeki tüm dosyaları toplu dönüştür",
 		"Klasörde yeni dosyaları izleyip otomatik dönüştür",
-		"Videodan seçilen aralığı yeni klip olarak çıkarır (orijinali korur)",
+		"Videodan aralık çıkarır veya aralığı silip kalanları birleştirir",
 		"Tek dosya için görsel/video boyutlandırma",
 		"Dizindeki dosyalar için toplu boyutlandırma",
 		"Desteklenen format ve dönüşüm yollarını gör",
@@ -1748,8 +1778,13 @@ func (m interactiveModel) goBack() interactiveModel {
 			return m.goToResizeManualUnitSelect()
 		}
 		return m.goToResizeConfig(m.resizeIsBatchFlow)
-	case stateVideoTrimStart:
+	case stateVideoTrimMode:
 		m.state = stateFileBrowser
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
+	case stateVideoTrimStart:
+		m.state = stateVideoTrimMode
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
@@ -1791,6 +1826,7 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.flowResizeOnly = resizeOnly
 	m.flowIsWatch = isWatch
 	m.flowVideoTrim = false
+	m.trimMode = ""
 	m.trimValidationErr = ""
 	m.cursor = 0
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +27,7 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.selectedCategory = videoCategoryIndex()
 	m.trimStartInput = "0"
 	m.trimDurationInput = "10"
+	m.trimMode = trimModeClip
 	m.trimCodec = "copy"
 	m.trimValidationErr = ""
 	m.state = stateFileBrowser
@@ -61,6 +61,10 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 	inputFile := m.selectedFile
 	startInput := m.trimStartInput
 	durationInput := m.trimDurationInput
+	mode := m.trimMode
+	if normalizeTrimMode(mode) == "" {
+		mode = trimModeClip
+	}
 	codec := m.trimCodec
 	quality := m.defaultQuality
 	outputBaseDir := m.defaultOutput
@@ -82,6 +86,10 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 		if err != nil {
 			return convertDoneMsg{err: fmt.Errorf("geçersiz süre değeri"), duration: time.Since(started)}
 		}
+		startValue, _, durationValue, _, _, err = resolveTrimRange(startValue, "", durationValue, mode)
+		if err != nil {
+			return convertDoneMsg{err: err, duration: time.Since(started)}
+		}
 
 		format := converter.NormalizeFormat(targetFormat)
 		if format == "" {
@@ -96,7 +104,12 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 		}
 
 		baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
-		outputPath := filepath.Join(outputBaseDir, fmt.Sprintf("%s_trim.%s", baseName, format))
+		suffix := "_trim"
+		if mode == trimModeRemove {
+			suffix = "_cut"
+		}
+		outputPath := filepath.Join(outputBaseDir, fmt.Sprintf("%s%s.%s", baseName, suffix, format))
+
 		resolvedOutput, skip, err := converter.ResolveOutputPathConflict(outputPath, conflictMode)
 		if err != nil {
 			return convertDoneMsg{err: err, duration: time.Since(started)}
@@ -113,17 +126,11 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 			return convertDoneMsg{err: err, duration: time.Since(started)}
 		}
 
-		err = runTrimFFmpeg(
-			inputFile,
-			resolvedOutput,
-			startValue,
-			"",
-			durationValue,
-			codec,
-			quality,
-			converter.MetadataAuto,
-			false,
-		)
+		if mode == trimModeRemove {
+			err = runTrimRemoveFFmpeg(inputFile, resolvedOutput, startValue, "", durationValue, codec, quality, converter.MetadataAuto, false)
+		} else {
+			err = runTrimFFmpeg(inputFile, resolvedOutput, startValue, "", durationValue, codec, quality, converter.MetadataAuto, false)
+		}
 		return convertDoneMsg{
 			err:      err,
 			duration: time.Since(started),
@@ -198,7 +205,11 @@ func (m interactiveModel) viewVideoTrimNumericInput(title string, value string, 
 		b.WriteString(infoStyle.Render(fmt.Sprintf("  Dosya: %s", filepath.Base(m.selectedFile))))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(dimStyle.Render("  Bu işlem seçtiğiniz aralığı yeni klip dosyası olarak çıkarır, orijinali silmez."))
+	if m.trimMode == trimModeRemove {
+		b.WriteString(dimStyle.Render("  Bu işlem seçilen aralığı siler, kalan parçaları birleştirip yeni dosya üretir."))
+	} else {
+		b.WriteString(dimStyle.Render("  Bu işlem seçtiğiniz aralığı yeni klip dosyası olarak çıkarır, orijinali silmez."))
+	}
 	b.WriteString("\n\n")
 
 	cursor := " "
@@ -226,7 +237,7 @@ func (m interactiveModel) viewVideoTrimNumericInput(title string, value string, 
 func (m interactiveModel) viewVideoTrimCodecSelect() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(" ◆ Video Klip Çıkarma — Codec Modu "))
+	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" ◆ Video %s — Codec Modu ", m.videoTrimOperationLabel())))
 	b.WriteString("\n\n")
 
 	if m.selectedFile != "" {
@@ -279,70 +290,40 @@ func (m interactiveModel) viewVideoTrimCodecSelect() string {
 	return b.String()
 }
 
-func normalizeVideoTrimTime(raw string, allowZero bool) (string, error) {
-	normalized := strings.ReplaceAll(strings.TrimSpace(raw), ",", ".")
-	if normalized == "" {
-		return "", fmt.Errorf("boş değer")
-	}
+func (m interactiveModel) viewVideoTrimModeSelect() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(" ◆ Video Düzenleme Modu Seçin "))
+	b.WriteString("\n\n")
 
-	seconds, err := parseVideoTrimToSeconds(normalized)
-	if err != nil {
-		return "", err
-	}
-	if !allowZero && seconds <= 0 {
-		return "", fmt.Errorf("süre sıfırdan büyük olmalı")
-	}
-	if allowZero && seconds < 0 {
-		return "", fmt.Errorf("değer negatif olamaz")
-	}
-
-	if strings.Contains(normalized, ":") {
-		parts := strings.Split(normalized, ":")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
+	for i, choice := range m.choices {
+		icon := ""
+		if i < len(m.choiceIcons) {
+			icon = m.choiceIcons[i]
 		}
-		return strings.Join(parts, ":"), nil
+		label := menuLine(icon, choice)
+		if i == m.cursor {
+			b.WriteString(selectedItemStyle.Render("▸ " + label))
+			b.WriteString("\n")
+			if i < len(m.choiceDescs) && m.choiceDescs[i] != "" {
+				b.WriteString(lipgloss.NewStyle().PaddingLeft(7).Foreground(dimTextColor).Italic(true).Render(m.choiceDescs[i]))
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(normalItemStyle.Render("  " + label))
+			b.WriteString("\n")
+		}
 	}
-	return strconv.FormatFloat(seconds, 'f', -1, 64), nil
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Geri"))
+	b.WriteString("\n")
+	return b.String()
 }
 
-func parseVideoTrimToSeconds(value string) (float64, error) {
-	normalized := strings.TrimSpace(value)
-	if strings.Contains(normalized, ":") {
-		parts := strings.Split(normalized, ":")
-		if len(parts) < 2 || len(parts) > 3 {
-			return 0, fmt.Errorf("zaman formatı hatalı")
-		}
-
-		parsed := make([]float64, len(parts))
-		for i, part := range parts {
-			p := strings.TrimSpace(part)
-			if p == "" {
-				return 0, fmt.Errorf("zaman formatı hatalı")
-			}
-			v, err := strconv.ParseFloat(p, 64)
-			if err != nil || v < 0 {
-				return 0, fmt.Errorf("zaman formatı hatalı")
-			}
-			parsed[i] = v
-		}
-
-		if len(parsed) == 2 {
-			if parsed[1] >= 60 {
-				return 0, fmt.Errorf("saniye 60'tan küçük olmalı")
-			}
-			return parsed[0]*60 + parsed[1], nil
-		}
-
-		if parsed[1] >= 60 || parsed[2] >= 60 {
-			return 0, fmt.Errorf("dakika/saniye 60'tan küçük olmalı")
-		}
-		return parsed[0]*3600 + parsed[1]*60 + parsed[2], nil
+func (m interactiveModel) videoTrimOperationLabel() string {
+	if m.trimMode == trimModeRemove {
+		return "Aralığı Sil"
 	}
-
-	v, err := strconv.ParseFloat(normalized, 64)
-	if err != nil || v < 0 {
-		return 0, fmt.Errorf("geçersiz sayı")
-	}
-	return v, nil
+	return "Klip Çıkarma"
 }
