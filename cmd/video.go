@@ -278,6 +278,41 @@ func runTrimFFmpeg(input string, output string, start string, end string, durati
 		return fmt.Errorf("ffmpeg bulunamadi")
 	}
 
+	startSec := 0.0
+	if strings.TrimSpace(start) != "" {
+		startSec, err = parseVideoTrimToSeconds(start)
+		if err != nil {
+			return fmt.Errorf("geçersiz başlangıç zamanı")
+		}
+	}
+
+	endSec := 0.0
+	hasRequestedEnd := false
+	if strings.TrimSpace(end) != "" {
+		endSec, err = parseVideoTrimToSeconds(end)
+		if err != nil {
+			return fmt.Errorf("geçersiz bitiş zamanı")
+		}
+		hasRequestedEnd = true
+	} else if strings.TrimSpace(duration) != "" {
+		durationSec, parseErr := parseVideoTrimToSeconds(duration)
+		if parseErr != nil {
+			return fmt.Errorf("geçersiz süre değeri")
+		}
+		endSec = startSec + durationSec
+		hasRequestedEnd = true
+	}
+
+	startSec, endSec, err = adjustTrimWindowByDuration(input, startSec, endSec, trimModeClip)
+	if err != nil {
+		return err
+	}
+	start = formatSecondsForFFmpeg(startSec)
+	if hasRequestedEnd {
+		end = formatSecondsForFFmpeg(endSec)
+		duration = ""
+	}
+
 	args := []string{}
 	if !verbose {
 		args = append(args, "-loglevel", "error")
@@ -332,6 +367,11 @@ func runTrimRemoveFFmpeg(input string, output string, start string, end string, 
 	}
 	if endSec <= startSec {
 		return fmt.Errorf("bitiş zamanı başlangıçtan büyük olmalıdır")
+	}
+
+	startSec, endSec, err = adjustTrimWindowByDuration(input, startSec, endSec, trimModeRemove)
+	if err != nil {
+		return err
 	}
 
 	tempDir, err := os.MkdirTemp("", "fileconverter-video-remove-*")
@@ -447,6 +487,60 @@ func hasContent(path string) bool {
 
 func escapeConcatPath(path string) string {
 	return strings.ReplaceAll(path, "'", "'\\''")
+}
+
+func adjustTrimWindowByDuration(input string, startSec float64, endSec float64, mode string) (float64, float64, error) {
+	durationSec, ok := probeMediaDurationSeconds(input)
+	if !ok {
+		return startSec, endSec, nil
+	}
+	return clampTrimWindowToDuration(startSec, endSec, durationSec, mode)
+}
+
+func probeMediaDurationSeconds(input string) (float64, bool) {
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		return 0, false
+	}
+	cmd := exec.Command(ffprobePath,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		input,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, false
+	}
+	sec, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || sec <= 0 {
+		return 0, false
+	}
+	return sec, true
+}
+
+func clampTrimWindowToDuration(startSec float64, endSec float64, durationSec float64, mode string) (float64, float64, error) {
+	const epsilon = 0.001
+
+	if durationSec <= 0 {
+		return startSec, endSec, nil
+	}
+	if startSec < 0 {
+		return 0, 0, fmt.Errorf("başlangıç zamanı negatif olamaz")
+	}
+	if startSec >= durationSec-epsilon {
+		return 0, 0, fmt.Errorf("başlangıç zamanı video süresini aşıyor (%.2fs)", durationSec)
+	}
+	if endSec > durationSec {
+		endSec = durationSec
+	}
+	if mode == trimModeRemove && endSec <= 0 {
+		return 0, 0, fmt.Errorf("remove modunda geçerli bir bitiş zamanı gerekir")
+	}
+	if endSec > 0 && endSec <= startSec+epsilon {
+		return 0, 0, fmt.Errorf("bitiş zamanı başlangıçtan büyük olmalıdır")
+	}
+	return startSec, endSec, nil
 }
 
 func trimCRF(quality int) int {

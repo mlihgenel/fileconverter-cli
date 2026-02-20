@@ -48,3 +48,29 @@ func TestResolveTrimRange(t *testing.T) {
 		t.Fatalf("expected range error when end <= start")
 	}
 }
+
+func TestClampTrimWindowToDuration(t *testing.T) {
+	start, end, err := clampTrimWindowToDuration(23, 25, 60, trimModeRemove)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if start != 23 || end != 25 {
+		t.Fatalf("unexpected unchanged values: start=%.2f end=%.2f", start, end)
+	}
+
+	_, end, err = clampTrimWindowToDuration(55, 70, 60, trimModeRemove)
+	if err != nil {
+		t.Fatalf("unexpected error on clamp: %v", err)
+	}
+	if end != 60 {
+		t.Fatalf("expected end to clamp to duration, got %.2f", end)
+	}
+
+	if _, _, err := clampTrimWindowToDuration(60, 61, 60, trimModeClip); err == nil {
+		t.Fatalf("expected error when start is out of duration")
+	}
+
+	if _, _, err := clampTrimWindowToDuration(10, 10, 60, trimModeRemove); err == nil {
+		t.Fatalf("expected error when end <= start")
+	}
+}
