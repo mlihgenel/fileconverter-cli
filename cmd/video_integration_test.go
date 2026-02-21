@@ -27,12 +27,12 @@ func TestVideoTrimIntegrationClipAndRemove(t *testing.T) {
 		t.Fatalf("failed to generate test video: %v", err)
 	}
 
-	if err := runTrimFFmpeg(input, clipOut, "1", "", "2", "reencode", 70, converter.MetadataAuto, false); err != nil {
+	if err := runTrimFFmpeg(input, clipOut, "1", "", "2", "mp4", "reencode", 70, converter.MetadataAuto, false); err != nil {
 		t.Fatalf("runTrimFFmpeg failed: %v", err)
 	}
 	assertFileHasContent(t, clipOut)
 
-	if err := runTrimRemoveFFmpeg(input, removeOut, "1", "", "2", "reencode", 70, converter.MetadataAuto, false); err != nil {
+	if err := runTrimRemoveFFmpeg(input, removeOut, "1", "", "2", "mp4", "reencode", 70, converter.MetadataAuto, false); err != nil {
 		t.Fatalf("runTrimRemoveFFmpeg failed: %v", err)
 	}
 	assertFileHasContent(t, removeOut)

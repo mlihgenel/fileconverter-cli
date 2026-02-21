@@ -21,6 +21,9 @@ func TestValidateTrimInput(t *testing.T) {
 	if err := validateTrimInput("remove", "", "", "1-2", "copy"); err != nil {
 		t.Fatalf("unexpected error for remove+valid ranges: %v", err)
 	}
+	if err := validateTrimInput("clip", "", "5", "", "auto"); err != nil {
+		t.Fatalf("unexpected error for auto codec: %v", err)
+	}
 }
 
 func TestBuildTrimOutputPath(t *testing.T) {
@@ -184,5 +187,52 @@ func TestFormatTrimSecondsHuman(t *testing.T) {
 	}
 	if got := formatTrimSecondsHuman(65.345); got != "00:01:05.345" {
 		t.Fatalf("unexpected formatted millis value: %s", got)
+	}
+}
+
+func TestResolveEffectiveTrimCodec(t *testing.T) {
+	codec, note, err := resolveEffectiveTrimCodec("/tmp/in.mp4", "mp4", "auto")
+	if err != nil {
+		t.Fatalf("unexpected auto same-format error: %v", err)
+	}
+	if codec != "copy" {
+		t.Fatalf("expected copy for same format auto, got %s", codec)
+	}
+	if note == "" {
+		t.Fatalf("expected auto decision note")
+	}
+
+	codec, note, err = resolveEffectiveTrimCodec("/tmp/in.mp4", "webm", "auto")
+	if err != nil {
+		t.Fatalf("unexpected auto cross-format error: %v", err)
+	}
+	if codec != "reencode" {
+		t.Fatalf("expected reencode for cross format auto, got %s", codec)
+	}
+	if note == "" {
+		t.Fatalf("expected cross-format auto note")
+	}
+
+	if _, _, err := resolveEffectiveTrimCodec("/tmp/in.mp4", "webm", "copy"); err == nil {
+		t.Fatalf("expected copy incompatibility error for cross format")
+	}
+}
+
+func TestTrimReencodeArgsByTargetFormat(t *testing.T) {
+	gifArgs := trimCodecArgs("gif", "reencode", 80)
+	if len(gifArgs) == 0 || gifArgs[0] != "-loop" {
+		t.Fatalf("expected gif reencode args, got %v", gifArgs)
+	}
+
+	webmArgs := trimCodecArgs("webm", "reencode", 80)
+	foundVP9 := false
+	for i := 0; i < len(webmArgs)-1; i++ {
+		if webmArgs[i] == "-c:v" && webmArgs[i+1] == "libvpx-vp9" {
+			foundVP9 = true
+			break
+		}
+	}
+	if !foundVP9 {
+		t.Fatalf("expected libvpx-vp9 for webm, got %v", webmArgs)
 	}
 }

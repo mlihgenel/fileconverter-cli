@@ -287,6 +287,7 @@ type interactiveModel struct {
 	trimRangeType     string
 	trimMode          string
 	trimCodec         string
+	trimCodecNote     string
 	trimValidationErr string
 	trimPreviewPlan   *videoTrimPlan
 }
@@ -1208,7 +1209,14 @@ func (m interactiveModel) viewConvertDone() string {
 			} else {
 				content += fmt.Sprintf("  Aralik: baslangic=%s, sure=%s\n", m.trimStartInput, m.trimDurationInput)
 			}
-			content += fmt.Sprintf("  Codec: %s\n", strings.ToUpper(m.trimCodec))
+			codecLabel := strings.ToUpper(m.trimCodec)
+			if m.trimPreviewPlan != nil && strings.TrimSpace(m.trimPreviewPlan.Codec) != "" {
+				codecLabel = strings.ToUpper(m.trimPreviewPlan.Codec)
+			}
+			content += fmt.Sprintf("  Codec: %s\n", codecLabel)
+			if strings.TrimSpace(m.trimCodecNote) != "" {
+				content += fmt.Sprintf("  Codec Kararı: %s\n", m.trimCodecNote)
+			}
 		}
 		content += fmt.Sprintf("  Sure:  %s", formatDuration(m.duration))
 		b.WriteString(resultBoxStyle.Render(content))
@@ -1434,7 +1442,8 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 					m.trimEndInput = ""
 					m.trimRangeType = trimRangeDuration
 					m.trimMode = trimModeClip
-					m.trimCodec = "copy"
+					m.trimCodec = "auto"
+					m.trimCodecNote = ""
 					m.trimValidationErr = ""
 					m.trimPreviewPlan = nil
 					m.state = stateVideoTrimMode
@@ -1557,6 +1566,7 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		} else {
 			m.trimMode = trimModeClip
 		}
+		m.trimCodecNote = ""
 		m.trimValidationErr = ""
 		m.state = stateVideoTrimStart
 		m.cursor = 0
@@ -1627,18 +1637,21 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			m.trimValidationErr = err.Error()
 			return m, nil
 		}
+		m.trimCodecNote = ""
 		m.trimValidationErr = ""
 		m.state = stateVideoTrimCodec
 		m.cursor = 0
-		m.choices = []string{"Copy (hızlı)", "Re-encode (uyumlu)"}
-		m.choiceIcons = []string{"⚡", "🎞️"}
+		m.choices = []string{"Auto (önerilen)", "Copy (hızlı)", "Re-encode (uyumlu)"}
+		m.choiceIcons = []string{"🧠", "⚡", "🎞️"}
 		if m.trimMode == trimModeRemove {
 			m.choiceDescs = []string{
+				"Hedef formata göre copy/reencode kararını otomatik verir",
 				"Aralık silme sonrası kalan parçaları hızlıca birleştirir",
 				"Aralık silme sonrası videoyu yeniden encode ederek daha uyumlu çıktı üretir",
 			}
 		} else {
 			m.choiceDescs = []string{
+				"Hedef formata göre copy/reencode kararını otomatik verir",
 				"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
 				"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
 			}
@@ -1647,6 +1660,8 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 
 	case stateVideoTrimCodec:
 		if m.cursor == 0 {
+			m.trimCodec = "auto"
+		} else if m.cursor == 1 {
 			m.trimCodec = "copy"
 		} else {
 			m.trimCodec = "reencode"
@@ -1658,6 +1673,7 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.trimValidationErr = ""
 		m.trimPreviewPlan = &execution.Plan
+		m.trimCodecNote = execution.CodecNote
 		m.targetFormat = execution.TargetFormat
 		m.state = stateVideoTrimPreview
 		m.cursor = 0
@@ -1794,6 +1810,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimRangeType = ""
 	m.trimMode = ""
 	m.trimCodec = ""
+	m.trimCodecNote = ""
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.choices = []string{
@@ -1935,6 +1952,7 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.trimEndInput = ""
 	m.trimRangeType = ""
 	m.trimMode = ""
+	m.trimCodecNote = ""
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.cursor = 0

@@ -47,7 +47,7 @@ func TestVideoTrimDurationToCodecDescriptions(t *testing.T) {
 	if next.state != stateVideoTrimCodec {
 		t.Fatalf("expected stateVideoTrimCodec, got %v", next.state)
 	}
-	if len(next.choiceDescs) == 0 || !strings.Contains(next.choiceDescs[0], "Aralık silme sonrası") {
+	if len(next.choiceDescs) < 2 || !strings.Contains(next.choiceDescs[1], "Aralık silme sonrası") {
 		t.Fatalf("expected remove-specific codec description")
 	}
 }

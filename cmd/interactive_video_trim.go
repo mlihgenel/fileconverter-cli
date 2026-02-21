@@ -35,7 +35,8 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.trimEndInput = ""
 	m.trimRangeType = trimRangeDuration
 	m.trimMode = trimModeClip
-	m.trimCodec = "copy"
+	m.trimCodec = "auto"
+	m.trimCodecNote = ""
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.state = stateFileBrowser
@@ -70,6 +71,7 @@ type videoTrimExecution struct {
 	Output        string
 	Mode          string
 	Codec         string
+	CodecNote     string
 	Quality       int
 	TargetFormat  string
 	StartValue    string
@@ -94,9 +96,9 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 	if rangeType != trimRangeEnd {
 		rangeType = trimRangeDuration
 	}
-	codec := normalizeTrimCodec(m.trimCodec)
-	if codec == "" {
-		codec = "copy"
+	requestedCodec := normalizeTrimCodec(m.trimCodec)
+	if requestedCodec == "" {
+		requestedCodec = "auto"
 	}
 
 	startValue, err := normalizeVideoTrimTime(m.trimStartInput, true)
@@ -129,6 +131,10 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 	if format == "" {
 		return execPlan, fmt.Errorf("hedef format belirlenemedi")
 	}
+	effectiveCodec, codecNote, err := resolveEffectiveTrimCodec(inputFile, format, requestedCodec)
+	if err != nil {
+		return execPlan, err
+	}
 
 	outputBaseDir := strings.TrimSpace(m.defaultOutput)
 	if outputBaseDir == "" {
@@ -159,11 +165,12 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 		endValue,
 		durationValue,
 		nil,
-		codec,
+		effectiveCodec,
 		m.defaultQuality,
 		converter.MetadataAuto,
 		conflictMode,
 		skip,
+		codecNote,
 	)
 	if err != nil {
 		return execPlan, err
@@ -173,7 +180,8 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 		Input:         inputFile,
 		Output:        resolvedOutput,
 		Mode:          mode,
-		Codec:         codec,
+		Codec:         effectiveCodec,
+		CodecNote:     codecNote,
 		Quality:       m.defaultQuality,
 		TargetFormat:  format,
 		StartValue:    startValue,
@@ -211,6 +219,7 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 				execution.StartValue,
 				execution.EndValue,
 				execution.DurationValue,
+				execution.TargetFormat,
 				execution.Codec,
 				execution.Quality,
 				converter.MetadataAuto,
@@ -223,6 +232,7 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 				execution.StartValue,
 				execution.EndValue,
 				execution.DurationValue,
+				execution.TargetFormat,
 				execution.Codec,
 				execution.Quality,
 				converter.MetadataAuto,
@@ -356,9 +366,10 @@ func (m interactiveModel) viewVideoTrimCodecSelect() string {
 	icons := m.choiceIcons
 	descs := m.choiceDescs
 	if len(choices) == 0 {
-		choices = []string{"Copy (hızlı)", "Re-encode (uyumlu)"}
-		icons = []string{"⚡", "🎞️"}
+		choices = []string{"Auto (önerilen)", "Copy (hızlı)", "Re-encode (uyumlu)"}
+		icons = []string{"🧠", "⚡", "🎞️"}
 		descs = []string{
+			"Hedef formata göre copy/reencode kararını otomatik verir",
 			"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
 			"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
 		}
@@ -415,6 +426,10 @@ func (m interactiveModel) viewVideoTrimPreview() string {
 		b.WriteString("\n")
 		b.WriteString(infoStyle.Render(fmt.Sprintf("  Codec: %s", strings.ToUpper(plan.Codec))))
 		b.WriteString("\n")
+		if strings.TrimSpace(plan.CodecNote) != "" {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  Not: %s", plan.CodecNote)))
+			b.WriteString("\n")
+		}
 		if plan.HasSourceDuration {
 			b.WriteString(infoStyle.Render(fmt.Sprintf("  Kaynak Süre: %s", formatTrimSecondsHuman(plan.SourceDurationSec))))
 			b.WriteString("\n")

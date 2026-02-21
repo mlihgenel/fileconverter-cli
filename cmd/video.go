@@ -105,7 +105,6 @@ var videoTrimCmd = &cobra.Command{
 			return err
 		}
 		mode := normalizeTrimMode(videoTrimMode)
-		codec := normalizeTrimCodec(videoTrimCodec)
 		previewMode := videoTrimDryRun || videoTrimPreview
 		if strings.TrimSpace(videoTrimRanges) != "" && (cmd.Flags().Changed("start") || cmd.Flags().Changed("end") || cmd.Flags().Changed("duration")) {
 			return fmt.Errorf("--ranges kullanırken --start/--end/--duration birlikte kullanılamaz")
@@ -135,6 +134,10 @@ var videoTrimCmd = &cobra.Command{
 		if targetFormat == "" {
 			return fmt.Errorf("hedef format belirlenemedi")
 		}
+		codec, codecNote, err := resolveEffectiveTrimCodec(input, targetFormat, videoTrimCodec)
+		if err != nil {
+			return err
+		}
 
 		outputPath := buildTrimOutputPath(input, targetFormat, videoTrimName, videoTrimOutputFile, mode)
 		conflict := converter.NormalizeConflictPolicy(videoTrimConflict)
@@ -163,6 +166,7 @@ var videoTrimCmd = &cobra.Command{
 				metadataMode,
 				conflict,
 				skip,
+				codecNote,
 			)
 			if err != nil {
 				return err
@@ -175,14 +179,17 @@ var videoTrimCmd = &cobra.Command{
 		}
 
 		ui.PrintConversion(input, outputPath)
+		if strings.TrimSpace(codecNote) != "" {
+			ui.PrintInfo(codecNote)
+		}
 		started := time.Now()
 		if mode == trimModeClip {
-			err = runTrimFFmpeg(input, outputPath, startValue, endValue, durationValue, codec, videoTrimQuality, metadataMode, verbose)
+			err = runTrimFFmpeg(input, outputPath, startValue, endValue, durationValue, targetFormat, codec, videoTrimQuality, metadataMode, verbose)
 		} else {
 			if len(removeRanges) > 0 {
-				err = runTrimRemoveRangesFFmpeg(input, outputPath, removeRanges, codec, videoTrimQuality, metadataMode, verbose)
+				err = runTrimRemoveRangesFFmpeg(input, outputPath, removeRanges, targetFormat, codec, videoTrimQuality, metadataMode, verbose)
 			} else {
-				err = runTrimRemoveFFmpeg(input, outputPath, startValue, endValue, durationValue, codec, videoTrimQuality, metadataMode, verbose)
+				err = runTrimRemoveFFmpeg(input, outputPath, startValue, endValue, durationValue, targetFormat, codec, videoTrimQuality, metadataMode, verbose)
 			}
 		}
 		if err != nil {
@@ -207,7 +214,7 @@ func init() {
 	videoTrimCmd.Flags().BoolVar(&videoTrimDryRun, "dry-run", false, "Ön izleme/plan modu: işlem yapmadan etkiyi gösterir")
 	videoTrimCmd.Flags().BoolVar(&videoTrimPreview, "preview", false, "Ön izleme modu (--dry-run ile aynı)")
 	videoTrimCmd.Flags().StringVar(&videoTrimMode, "mode", trimModeClip, "İşlem modu: clip veya remove")
-	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "copy", "Codec modu: copy veya reencode")
+	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "auto", "Codec modu: auto, copy veya reencode")
 	videoTrimCmd.Flags().StringVar(&videoTrimOutputFile, "output-file", "", "Tam çıktı dosya yolu")
 	videoTrimCmd.Flags().StringVarP(&videoTrimName, "name", "n", "", "Çıktı dosya adı (uzantısız)")
 	videoTrimCmd.Flags().StringVar(&videoTrimToFormat, "to", "", "Hedef format (örn: mp4, mov)")
@@ -231,7 +238,7 @@ func validateTrimInput(mode string, end string, duration string, ranges string, 
 	}
 	c := normalizeTrimCodec(codec)
 	if c == "" {
-		return fmt.Errorf("gecersiz codec modu: %s (copy|reencode)", codec)
+		return fmt.Errorf("gecersiz codec modu: %s (auto|copy|reencode)", codec)
 	}
 	hasRanges := strings.TrimSpace(ranges) != ""
 	if hasRanges && normalizedMode != trimModeRemove {
@@ -259,7 +266,7 @@ func normalizeTrimMode(mode string) string {
 
 func normalizeTrimCodec(codec string) string {
 	c := strings.ToLower(strings.TrimSpace(codec))
-	if c != "copy" && c != "reencode" {
+	if c != "auto" && c != "copy" && c != "reencode" {
 		return ""
 	}
 	return c
@@ -312,6 +319,38 @@ func resolveTrimRange(start string, end string, duration string, mode string) (s
 	}
 
 	return startValue, endValue, durationValue, startSec, endSec, nil
+}
+
+func resolveEffectiveTrimCodec(inputPath string, targetFormat string, requestedCodec string) (string, string, error) {
+	requested := normalizeTrimCodec(requestedCodec)
+	if requested == "" {
+		return "", "", fmt.Errorf("gecersiz codec modu: %s (auto|copy|reencode)", requestedCodec)
+	}
+
+	inputFormat := converter.NormalizeFormat(converter.DetectFormat(inputPath))
+	targetFormat = converter.NormalizeFormat(targetFormat)
+
+	switch requested {
+	case "reencode":
+		return "reencode", "", nil
+	case "copy":
+		if inputFormat != "" && targetFormat != "" && inputFormat != targetFormat {
+			return "", "", fmt.Errorf(
+				"--codec copy yalnızca aynı formatta güvenlidir (%s -> %s). --codec auto veya --codec reencode kullanın",
+				inputFormat,
+				targetFormat,
+			)
+		}
+		return "copy", "", nil
+	default: // auto
+		if inputFormat == "" || targetFormat == "" {
+			return "reencode", "codec auto: format tespit edilemediği için uyumluluk amaçlı reencode seçildi.", nil
+		}
+		if inputFormat == targetFormat {
+			return "copy", fmt.Sprintf("codec auto: %s -> %s aynı format, copy seçildi.", inputFormat, targetFormat), nil
+		}
+		return "reencode", fmt.Sprintf("codec auto: %s -> %s farklı format, reencode seçildi.", inputFormat, targetFormat), nil
+	}
 }
 
 func parseTrimRangesSpec(spec string) ([]trimRange, error) {
@@ -407,7 +446,7 @@ func buildTrimOutputPath(input string, targetFormat string, customName string, e
 	return filepath.Join(filepath.Dir(input), base+"."+targetFormat)
 }
 
-func runTrimFFmpeg(input string, output string, start string, end string, duration string, codec string, quality int, metadataMode string, verbose bool) error {
+func runTrimFFmpeg(input string, output string, start string, end string, duration string, targetFormat string, codec string, quality int, metadataMode string, verbose bool) error {
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return fmt.Errorf("ffmpeg bulunamadi")
@@ -464,7 +503,7 @@ func runTrimFFmpeg(input string, output string, start string, end string, durati
 		args = append(args, "-t", strings.TrimSpace(duration))
 	}
 
-	args = append(args, trimCodecArgs(codec, quality)...)
+	args = append(args, trimCodecArgs(targetFormat, codec, quality)...)
 
 	args = append(args, converter.MetadataFFmpegArgs(metadataMode)...)
 	args = append(args, "-y")
@@ -476,12 +515,12 @@ func runTrimFFmpeg(input string, output string, start string, end string, durati
 	return nil
 }
 
-func runTrimRemoveFFmpeg(input string, output string, start string, end string, duration string, codec string, quality int, metadataMode string, verbose bool) error {
+func runTrimRemoveFFmpeg(input string, output string, start string, end string, duration string, targetFormat string, codec string, quality int, metadataMode string, verbose bool) error {
 	removeRanges, err := resolveRemoveRanges(start, end, duration, nil)
 	if err != nil {
 		return err
 	}
-	return runTrimRemoveRangesFFmpeg(input, output, removeRanges, codec, quality, metadataMode, verbose)
+	return runTrimRemoveRangesFFmpeg(input, output, removeRanges, targetFormat, codec, quality, metadataMode, verbose)
 }
 
 type keepSegment struct {
@@ -495,6 +534,7 @@ type videoTrimPlan struct {
 	Output            string
 	Mode              string
 	Codec             string
+	CodecNote         string
 	Quality           int
 	MetadataMode      string
 	ConflictPolicy    string
@@ -521,12 +561,14 @@ func buildVideoTrimPlan(
 	metadataMode string,
 	conflictPolicy string,
 	wouldSkip bool,
+	codecNote string,
 ) (videoTrimPlan, error) {
 	plan := videoTrimPlan{
 		Input:          input,
 		Output:         output,
 		Mode:           mode,
 		Codec:          codec,
+		CodecNote:      strings.TrimSpace(codecNote),
 		Quality:        quality,
 		MetadataMode:   metadataMode,
 		ConflictPolicy: conflictPolicy,
@@ -646,6 +688,9 @@ func resolveRemoveRanges(start string, end string, duration string, ranges []tri
 func printVideoTrimPlan(plan videoTrimPlan) {
 	ui.PrintInfo("Ön izleme modu (--dry-run/--preview) — işlem yapılmayacak.")
 	ui.PrintConversion(plan.Input, plan.Output)
+	if plan.CodecNote != "" {
+		ui.PrintInfo(plan.CodecNote)
+	}
 
 	modeLabel := "Klip Çıkarma"
 	if plan.Mode == trimModeRemove {
@@ -758,7 +803,7 @@ func formatTrimSecondsHuman(value float64) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, ms)
 }
 
-func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, codec string, quality int, metadataMode string, verbose bool) error {
+func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, targetFormat string, codec string, quality int, metadataMode string, verbose bool) error {
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return fmt.Errorf("ffmpeg bulunamadi")
@@ -790,10 +835,7 @@ func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, 
 	}
 	defer os.RemoveAll(tempDir)
 
-	ext := filepath.Ext(output)
-	if ext == "" {
-		ext = filepath.Ext(input)
-	}
+	ext := filepath.Ext(input)
 	if ext == "" {
 		ext = ".mp4"
 	}
@@ -831,7 +873,7 @@ func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, 
 			singleArgs = append(singleArgs, "-loglevel", "error")
 		}
 		singleArgs = append(singleArgs, "-i", remainingParts[0])
-		singleArgs = append(singleArgs, trimCodecArgs(codec, quality)...)
+		singleArgs = append(singleArgs, trimCodecArgs(targetFormat, codec, quality)...)
 		singleArgs = append(singleArgs, converter.MetadataFFmpegArgs(metadataMode)...)
 		singleArgs = append(singleArgs, "-y", output)
 		return runFFmpegCommand(ffmpegPath, singleArgs, "video remove çıktı üretilemedi")
@@ -852,7 +894,7 @@ func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, 
 		concatArgs = append(concatArgs, "-loglevel", "error")
 	}
 	concatArgs = append(concatArgs, "-f", "concat", "-safe", "0", "-i", listPath)
-	concatArgs = append(concatArgs, trimCodecArgs(codec, quality)...)
+	concatArgs = append(concatArgs, trimCodecArgs(targetFormat, codec, quality)...)
 	concatArgs = append(concatArgs, converter.MetadataFFmpegArgs(metadataMode)...)
 	concatArgs = append(concatArgs, "-y", output)
 	return runFFmpegCommand(ffmpegPath, concatArgs, "video remove birleştirme hatası")
@@ -923,19 +965,70 @@ func buildKeepSegmentsFromRanges(ranges []trimRange, durationSec float64, hasDur
 	return segments, nil
 }
 
-func trimCodecArgs(codec string, quality int) []string {
+func trimCodecArgs(targetFormat string, codec string, quality int) []string {
 	if codec == "copy" {
 		return []string{"-c", "copy"}
 	}
+	return trimReencodeArgs(targetFormat, quality)
+}
 
+func trimReencodeArgs(targetFormat string, quality int) []string {
+	to := converter.NormalizeFormat(targetFormat)
 	crf := trimCRF(quality)
-	return []string{
-		"-c:v", "libx264",
-		"-crf", fmt.Sprintf("%d", crf),
-		"-preset", "medium",
-		"-pix_fmt", "yuv420p",
-		"-c:a", "aac",
-		"-b:a", "128k",
+
+	switch to {
+	case "gif":
+		return []string{"-loop", "0", "-an"}
+	case "webm":
+		webmCRF := crf + 6
+		if webmCRF > 40 {
+			webmCRF = 40
+		}
+		return []string{
+			"-c:v", "libvpx-vp9",
+			"-crf", strconv.Itoa(webmCRF),
+			"-b:v", "0",
+			"-row-mt", "1",
+			"-c:a", "libopus",
+			"-b:a", "128k",
+		}
+	case "avi":
+		return []string{
+			"-c:v", "mpeg4",
+			"-q:v", strconv.Itoa(trimQScale(quality)),
+			"-c:a", "mp3",
+			"-b:a", "192k",
+		}
+	case "wmv":
+		return []string{
+			"-c:v", "wmv2",
+			"-c:a", "wmav2",
+		}
+	case "flv":
+		return []string{
+			"-c:v", "flv",
+			"-c:a", "mp3",
+			"-ar", "44100",
+		}
+	case "mp4", "m4v", "mov":
+		return []string{
+			"-c:v", "libx264",
+			"-crf", strconv.Itoa(crf),
+			"-preset", "medium",
+			"-pix_fmt", "yuv420p",
+			"-movflags", "+faststart",
+			"-c:a", "aac",
+			"-b:a", "128k",
+		}
+	default: // mkv ve h264 uyumlu kapsayıcılar
+		return []string{
+			"-c:v", "libx264",
+			"-crf", strconv.Itoa(crf),
+			"-preset", "medium",
+			"-pix_fmt", "yuv420p",
+			"-c:a", "aac",
+			"-b:a", "128k",
+		}
 	}
 }
 
@@ -1030,5 +1123,21 @@ func trimCRF(quality int) int {
 		return 24
 	default:
 		return 20
+	}
+}
+
+func trimQScale(quality int) int {
+	if quality <= 0 {
+		return 5
+	}
+	switch {
+	case quality <= 25:
+		return 8
+	case quality <= 50:
+		return 6
+	case quality <= 75:
+		return 4
+	default:
+		return 2
 	}
 }
