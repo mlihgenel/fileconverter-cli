@@ -164,6 +164,7 @@ const (
 	stateVideoTrimStart
 	stateVideoTrimRangeType
 	stateVideoTrimDuration
+	stateVideoTrimTimeline
 	stateVideoTrimCodec
 	stateVideoTrimPreview
 )
@@ -288,6 +289,11 @@ type interactiveModel struct {
 	trimMode          string
 	trimCodec         string
 	trimCodecNote     string
+	trimTimelineStart float64
+	trimTimelineEnd   float64
+	trimTimelineMax   float64
+	trimTimelineStep  float64
+	trimTimelineKnown bool
 	trimValidationErr string
 	trimPreviewPlan   *videoTrimPlan
 }
@@ -692,6 +698,50 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.state == stateVideoTrimTimeline {
+			switch msg.String() {
+			case "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "q":
+				return m.goToMainMenu(), nil
+			case "enter":
+				return m.handleEnter()
+			case "esc":
+				return m.goBack(), nil
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.cursor < 1 {
+					m.cursor++
+				}
+				return m, nil
+			case "tab":
+				if m.cursor == 0 {
+					m.cursor = 1
+				} else {
+					m.cursor = 0
+				}
+				return m, nil
+			case "left", "h":
+				m.adjustVideoTrimTimeline(-m.trimTimelineStep)
+				return m, nil
+			case "right", "l":
+				m.adjustVideoTrimTimeline(m.trimTimelineStep)
+				return m, nil
+			case "[":
+				m.trimTimelineStep = decreaseTimelineStep(m.trimTimelineStep)
+				return m, nil
+			case "]":
+				m.trimTimelineStep = increaseTimelineStep(m.trimTimelineStep)
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
 
 		switch msg.String() {
 		case "ctrl+c":
@@ -758,6 +808,8 @@ func (m interactiveModel) getMaxCursor() int {
 		return 0
 	case stateVideoTrimStart, stateVideoTrimDuration:
 		return 0
+	case stateVideoTrimTimeline:
+		return 1
 	default:
 		return len(m.choices) - 1
 	}
@@ -844,6 +896,8 @@ func (m interactiveModel) View() string {
 			return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Bitiş (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimEndInput, "Örnek: 25 veya 00:00:25")
 		}
 		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Süre (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimDurationInput, "Örnek: 2 veya 00:00:02")
+	case stateVideoTrimTimeline:
+		return m.viewVideoTrimTimeline()
 	case stateVideoTrimCodec:
 		return m.viewVideoTrimCodecSelect()
 	case stateVideoTrimPreview:
@@ -1637,6 +1691,17 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			m.trimValidationErr = err.Error()
 			return m, nil
 		}
+		if err := m.prepareVideoTrimTimeline(); err != nil {
+			m.trimValidationErr = err.Error()
+			return m, nil
+		}
+		m.trimCodecNote = ""
+		m.trimValidationErr = ""
+		m.state = stateVideoTrimTimeline
+		m.cursor = 0
+		return m, nil
+
+	case stateVideoTrimTimeline:
 		m.trimCodecNote = ""
 		m.trimValidationErr = ""
 		m.state = stateVideoTrimCodec
@@ -1811,6 +1876,11 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimMode = ""
 	m.trimCodec = ""
 	m.trimCodecNote = ""
+	m.trimTimelineStart = 0
+	m.trimTimelineEnd = 0
+	m.trimTimelineMax = 0
+	m.trimTimelineStep = 1
+	m.trimTimelineKnown = false
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.choices = []string{
@@ -1911,8 +1981,13 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
-	case stateVideoTrimCodec:
+	case stateVideoTrimTimeline:
 		m.state = stateVideoTrimDuration
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
+	case stateVideoTrimCodec:
+		m.state = stateVideoTrimTimeline
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
@@ -1953,6 +2028,11 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.trimRangeType = ""
 	m.trimMode = ""
 	m.trimCodecNote = ""
+	m.trimTimelineStart = 0
+	m.trimTimelineEnd = 0
+	m.trimTimelineMax = 0
+	m.trimTimelineStep = 1
+	m.trimTimelineKnown = false
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.cursor = 0

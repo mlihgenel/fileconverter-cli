@@ -107,3 +107,41 @@ func TestBuildVideoTrimExecutionRemove(t *testing.T) {
 		t.Fatalf("unexpected remove range: %+v", execution.Plan.RemoveRanges[0])
 	}
 }
+
+func TestPrepareVideoTrimTimelineAndAdjust(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = "/tmp/sample.mp4"
+	m.trimMode = trimModeClip
+	m.trimRangeType = trimRangeDuration
+	m.trimStartInput = "10"
+	m.trimDurationInput = "5"
+
+	if err := m.prepareVideoTrimTimeline(); err != nil {
+		t.Fatalf("unexpected timeline prepare error: %v", err)
+	}
+	if m.trimTimelineStart != 10 || m.trimTimelineEnd != 15 {
+		t.Fatalf("unexpected timeline bounds: start=%.2f end=%.2f", m.trimTimelineStart, m.trimTimelineEnd)
+	}
+
+	m.cursor = 0
+	m.trimTimelineStep = 1
+	m.adjustVideoTrimTimeline(2)
+	if m.trimTimelineStart != 12 {
+		t.Fatalf("expected start to move to 12, got %.2f", m.trimTimelineStart)
+	}
+
+	m.cursor = 1
+	m.adjustVideoTrimTimeline(-1)
+	if m.trimTimelineEnd != 14 {
+		t.Fatalf("expected end to move to 14, got %.2f", m.trimTimelineEnd)
+	}
+}
+
+func TestTimelineStepHelpers(t *testing.T) {
+	if got := increaseTimelineStep(1); got != 2 {
+		t.Fatalf("expected increase from 1 to 2, got %.1f", got)
+	}
+	if got := decreaseTimelineStep(1); got != 0.5 {
+		t.Fatalf("expected decrease from 1 to 0.5, got %.1f", got)
+	}
+}

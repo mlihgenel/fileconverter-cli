@@ -34,10 +34,30 @@ func TestVideoTrimDurationToCodecDescriptions(t *testing.T) {
 	m.trimMode = trimModeRemove
 	m.trimRangeType = trimRangeDuration
 	m.trimDurationInput = "2"
+	m.selectedFile = "/tmp/sample.mp4"
 
 	nextModel, cmd := m.handleEnter()
 	if cmd != nil {
 		t.Fatalf("expected no async command for duration step")
+	}
+
+	next, ok := nextModel.(interactiveModel)
+	if !ok {
+		t.Fatalf("unexpected model type")
+	}
+	if next.state != stateVideoTrimTimeline {
+		t.Fatalf("expected stateVideoTrimTimeline, got %v", next.state)
+	}
+}
+
+func TestVideoTrimTimelineToCodecDescriptions(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.state = stateVideoTrimTimeline
+	m.trimMode = trimModeRemove
+
+	nextModel, cmd := m.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no async command for timeline step")
 	}
 
 	next, ok := nextModel.(interactiveModel)

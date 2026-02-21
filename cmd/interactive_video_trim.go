@@ -18,6 +18,7 @@ var videoTrimInputFormats = []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", 
 const (
 	trimRangeDuration = "duration"
 	trimRangeEnd      = "end"
+	minTimelineGapSec = 0.1
 )
 
 func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
@@ -37,6 +38,11 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.trimMode = trimModeClip
 	m.trimCodec = "auto"
 	m.trimCodecNote = ""
+	m.trimTimelineStart = 0
+	m.trimTimelineEnd = 0
+	m.trimTimelineMax = 0
+	m.trimTimelineStep = 1
+	m.trimTimelineKnown = false
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.state = stateFileBrowser
@@ -306,6 +312,138 @@ func (m *interactiveModel) currentVideoTrimInputField() *string {
 	}
 }
 
+func (m *interactiveModel) prepareVideoTrimTimeline() error {
+	if strings.TrimSpace(m.selectedFile) == "" {
+		return fmt.Errorf("trim için video seçilmedi")
+	}
+
+	startRaw := strings.TrimSpace(m.trimStartInput)
+	if startRaw == "" {
+		startRaw = "0"
+	}
+	startSec, err := parseVideoTrimToSeconds(startRaw)
+	if err != nil {
+		return fmt.Errorf("geçersiz başlangıç değeri")
+	}
+
+	endSec := 0.0
+	if m.trimRangeType == trimRangeEnd {
+		endSec, err = parseVideoTrimToSeconds(strings.TrimSpace(m.trimEndInput))
+		if err != nil {
+			return fmt.Errorf("geçersiz bitiş değeri")
+		}
+	} else {
+		durationSec, parseErr := parseVideoTrimToSeconds(strings.TrimSpace(m.trimDurationInput))
+		if parseErr != nil {
+			return fmt.Errorf("geçersiz süre değeri")
+		}
+		endSec = startSec + durationSec
+	}
+
+	totalSec, known := probeMediaDurationSeconds(m.selectedFile)
+	if known {
+		startSec, endSec, err = clampTrimWindowToDuration(startSec, endSec, totalSec, m.trimMode)
+		if err != nil {
+			return err
+		}
+		m.trimTimelineMax = totalSec
+	} else {
+		m.trimTimelineMax = endSec + 15
+		if m.trimTimelineMax < 60 {
+			m.trimTimelineMax = 60
+		}
+	}
+
+	m.trimTimelineKnown = known
+	m.trimTimelineStart = startSec
+	m.trimTimelineEnd = endSec
+	if m.trimTimelineStep <= 0 {
+		m.trimTimelineStep = 1
+	}
+	m.syncVideoTrimTimelineInputs()
+	return nil
+}
+
+func (m *interactiveModel) adjustVideoTrimTimeline(delta float64) {
+	if delta == 0 {
+		return
+	}
+
+	if m.cursor == 0 {
+		nextStart := m.trimTimelineStart + delta
+		if nextStart < 0 {
+			nextStart = 0
+		}
+		maxStart := m.trimTimelineEnd - minTimelineGapSec
+		if nextStart > maxStart {
+			nextStart = maxStart
+		}
+		if m.trimTimelineKnown && nextStart > m.trimTimelineMax-minTimelineGapSec {
+			nextStart = m.trimTimelineMax - minTimelineGapSec
+		}
+		if nextStart < 0 {
+			nextStart = 0
+		}
+		m.trimTimelineStart = nextStart
+	} else {
+		nextEnd := m.trimTimelineEnd + delta
+		minEnd := m.trimTimelineStart + minTimelineGapSec
+		if nextEnd < minEnd {
+			nextEnd = minEnd
+		}
+		if m.trimTimelineKnown && nextEnd > m.trimTimelineMax {
+			nextEnd = m.trimTimelineMax
+		}
+		m.trimTimelineEnd = nextEnd
+	}
+
+	if !m.trimTimelineKnown && m.trimTimelineEnd > m.trimTimelineMax-1 {
+		m.trimTimelineMax = m.trimTimelineEnd + 10
+	}
+
+	m.syncVideoTrimTimelineInputs()
+}
+
+func (m *interactiveModel) syncVideoTrimTimelineInputs() {
+	m.trimStartInput = formatSecondsForFFmpeg(m.trimTimelineStart)
+	if m.trimRangeType == trimRangeEnd {
+		m.trimEndInput = formatSecondsForFFmpeg(m.trimTimelineEnd)
+		return
+	}
+	duration := m.trimTimelineEnd - m.trimTimelineStart
+	if duration < minTimelineGapSec {
+		duration = minTimelineGapSec
+	}
+	m.trimDurationInput = formatSecondsForFFmpeg(duration)
+}
+
+func increaseTimelineStep(current float64) float64 {
+	steps := []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60}
+	for i, s := range steps {
+		if current < s {
+			return s
+		}
+		if current == s && i < len(steps)-1 {
+			return steps[i+1]
+		}
+	}
+	return steps[len(steps)-1]
+}
+
+func decreaseTimelineStep(current float64) float64 {
+	steps := []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60}
+	for i := len(steps) - 1; i >= 0; i-- {
+		s := steps[i]
+		if current > s {
+			return s
+		}
+		if current == s && i > 0 {
+			return steps[i-1]
+		}
+	}
+	return steps[0]
+}
+
 func (m interactiveModel) viewVideoTrimNumericInput(title string, value string, hint string) string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -342,6 +480,135 @@ func (m interactiveModel) viewVideoTrimNumericInput(title string, value string, 
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render("  Sayı/zaman gir  •  Backspace Sil  •  Enter Devam  •  Esc Geri"))
 	b.WriteString("\n")
+	return b.String()
+}
+
+func (m interactiveModel) viewVideoTrimTimeline() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" ◆ Video %s — Timeline Ayarı ", m.videoTrimOperationLabel())))
+	b.WriteString("\n\n")
+
+	if m.selectedFile != "" {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  Dosya: %s", filepath.Base(m.selectedFile))))
+		b.WriteString("\n")
+	}
+
+	totalLabel := "bilinmiyor"
+	if m.trimTimelineKnown {
+		totalLabel = formatTrimSecondsHuman(m.trimTimelineMax)
+	}
+	b.WriteString(infoStyle.Render(fmt.Sprintf("  Video Süresi: %s", totalLabel)))
+	b.WriteString("\n")
+
+	if !m.trimTimelineKnown {
+		b.WriteString(dimStyle.Render("  Not: ffprobe süreyi okuyamadı, bar tahmini ölçekte gösteriliyor."))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	barWidth := 64
+	if m.width > 0 && m.width < 90 {
+		barWidth = 42
+	}
+	b.WriteString("  ")
+	b.WriteString(m.videoTrimTimelineBar(barWidth))
+	b.WriteString("\n\n")
+
+	startLabel := formatTrimSecondsHuman(m.trimTimelineStart)
+	endLabel := formatTrimSecondsHuman(m.trimTimelineEnd)
+	lengthLabel := formatTrimSecondsHuman(m.trimTimelineEnd - m.trimTimelineStart)
+
+	startPrefix := "  "
+	endPrefix := "  "
+	if m.cursor == 0 {
+		startPrefix = "▸ "
+	} else {
+		endPrefix = "▸ "
+	}
+
+	b.WriteString(infoStyle.Render(fmt.Sprintf("%sBaşlangıç: %s", startPrefix, startLabel)))
+	b.WriteString("\n")
+	if m.trimRangeType == trimRangeEnd {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("%sBitiş:     %s", endPrefix, endLabel)))
+	} else {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("%sBitiş:     %s", endPrefix, endLabel)))
+	}
+	b.WriteString("\n")
+	b.WriteString(infoStyle.Render(fmt.Sprintf("  Aralık Süresi: %s", lengthLabel)))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("  Adım: %.1fs", m.trimTimelineStep)))
+	b.WriteString("\n")
+
+	if m.trimValidationErr != "" {
+		b.WriteString("\n")
+		b.WriteString(errorStyle.Render("  Hata: " + m.trimValidationErr))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ←/→ Aralığı kaydır  •  ↑/↓ veya Tab odak değiştir (başlangıç/bitiş)"))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  [ ] Adım azalt/artır  •  Enter Devam  •  Esc Geri"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (m interactiveModel) videoTrimTimelineBar(width int) string {
+	if width < 20 {
+		width = 20
+	}
+	maxSec := m.trimTimelineMax
+	if maxSec <= 0 {
+		maxSec = m.trimTimelineEnd + 15
+	}
+	if maxSec <= 0 {
+		maxSec = 60
+	}
+
+	startPos := int((m.trimTimelineStart / maxSec) * float64(width-1))
+	endPos := int((m.trimTimelineEnd / maxSec) * float64(width-1))
+	if startPos < 0 {
+		startPos = 0
+	}
+	if startPos > width-1 {
+		startPos = width - 1
+	}
+	if endPos < startPos {
+		endPos = startPos
+	}
+	if endPos > width-1 {
+		endPos = width - 1
+	}
+
+	runes := make([]rune, width)
+	for i := 0; i < width; i++ {
+		runes[i] = '─'
+	}
+	for i := startPos; i <= endPos && i < width; i++ {
+		runes[i] = '━'
+	}
+	runes[startPos] = '◆'
+	runes[endPos] = '◆'
+
+	rangeStyle := lipgloss.NewStyle().Foreground(accentColor)
+	baseStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	markerStyle := lipgloss.NewStyle().Foreground(warningColor).Bold(true)
+
+	var b strings.Builder
+	b.WriteString(baseStyle.Render("["))
+	for i, r := range runes {
+		ch := string(r)
+		switch {
+		case i == startPos || i == endPos:
+			b.WriteString(markerStyle.Render(ch))
+		case i >= startPos && i <= endPos:
+			b.WriteString(rangeStyle.Render(ch))
+		default:
+			b.WriteString(baseStyle.Render(ch))
+		}
+	}
+	b.WriteString(baseStyle.Render("]"))
 	return b.String()
 }
 
