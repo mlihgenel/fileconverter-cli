@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mlihgenel/fileconverter-cli/internal/converter"
@@ -204,6 +205,82 @@ func TestRemoveTimelineSegmentLifecycle(t *testing.T) {
 	}
 	if len(m.trimSegments) != 1 {
 		t.Fatalf("expected 1 segment after delete, got %d", len(m.trimSegments))
+	}
+}
+
+func TestMoveTimelineCursorSelectsNearestSegment(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.trimMode = trimModeRemove
+	m.trimTimelineKnown = true
+	m.trimTimelineMax = 60
+	m.trimTimelineStep = 1
+	m.trimSegments = []trimRange{
+		{Start: 5, End: 8},
+		{Start: 20, End: 25},
+		{Start: 40, End: 45},
+	}
+	m.trimActiveSegment = 0
+	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
+
+	m.moveTimelineCursor(19)
+	if m.trimActiveSegment != 1 {
+		t.Fatalf("expected active segment index 1, got %d", m.trimActiveSegment)
+	}
+	if m.trimTimelineStart != 20 || m.trimTimelineEnd != 25 {
+		t.Fatalf("unexpected active segment bounds: %.1f-%.1f", m.trimTimelineStart, m.trimTimelineEnd)
+	}
+
+	m.moveTimelineCursor(20)
+	if m.trimActiveSegment != 2 {
+		t.Fatalf("expected active segment index 2, got %d", m.trimActiveSegment)
+	}
+}
+
+func TestSelectRemoveSegmentByKey(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.trimMode = trimModeRemove
+	m.trimSegments = []trimRange{
+		{Start: 5, End: 8},
+		{Start: 20, End: 25},
+	}
+
+	if err := m.selectRemoveSegmentByKey("2"); err != nil {
+		t.Fatalf("unexpected segment select error: %v", err)
+	}
+	if m.trimActiveSegment != 1 {
+		t.Fatalf("expected active segment index 1, got %d", m.trimActiveSegment)
+	}
+	if m.trimTimelineStart != 20 || m.trimTimelineEnd != 25 {
+		t.Fatalf("unexpected selected segment bounds: %.1f-%.1f", m.trimTimelineStart, m.trimTimelineEnd)
+	}
+	if m.trimTimelineCursor <= 20 || m.trimTimelineCursor >= 25 {
+		t.Fatalf("expected cursor centered within selected segment, got %.1f", m.trimTimelineCursor)
+	}
+
+	if err := m.selectRemoveSegmentByKey("9"); err == nil {
+		t.Fatalf("expected out-of-range key selection error")
+	}
+}
+
+func TestVideoTrimTimelineBarRemoveContainsCursorMarker(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.trimMode = trimModeRemove
+	m.trimTimelineKnown = true
+	m.trimTimelineMax = 60
+	m.trimTimelineCursor = 22
+	m.trimActiveSegment = 1
+	m.trimSegments = []trimRange{
+		{Start: 5, End: 8},
+		{Start: 20, End: 25},
+	}
+
+	bar := m.videoTrimTimelineBar(48)
+	if !strings.Contains(bar, "│") {
+		t.Fatalf("expected bar to include cursor marker, got %q", bar)
+	}
+	if !strings.Contains(bar, "◆") {
+		t.Fatalf("expected bar to include boundary markers, got %q", bar)
 	}
 }
 

@@ -44,6 +44,7 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimTimelineCursor = 0
 	m.trimSegments = nil
 	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
@@ -442,6 +443,7 @@ func (m *interactiveModel) prepareVideoTrimTimeline() error {
 			m.trimActiveSegment = 0
 		}
 		m.syncTimelineFromActiveRemoveSegment()
+		m.centerTimelineCursorOnActiveSegment()
 	} else {
 		m.trimTimelineStart = startSec
 		m.trimTimelineEnd = endSec
@@ -601,6 +603,11 @@ func (m *interactiveModel) adjustActiveRemoveTimelineSegment(delta float64) {
 	m.trimSegments[m.trimActiveSegment] = active
 	m.trimTimelineStart = active.Start
 	m.trimTimelineEnd = active.End
+	if m.trimTimelineCursor < active.Start {
+		m.trimTimelineCursor = active.Start
+	} else if m.trimTimelineCursor > active.End {
+		m.trimTimelineCursor = active.End
+	}
 }
 
 func (m *interactiveModel) addRemoveTimelineSegment() error {
@@ -642,6 +649,7 @@ func (m *interactiveModel) addRemoveTimelineSegment() error {
 	m.trimSegments[insertAt] = trimRange{Start: start, End: end}
 	m.trimActiveSegment = insertAt
 	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
 	m.syncVideoTrimTimelineInputs()
 	return nil
 }
@@ -655,6 +663,7 @@ func (m *interactiveModel) selectNextRemoveSegment() {
 		m.trimActiveSegment = 0
 	}
 	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
 	m.syncVideoTrimTimelineInputs()
 }
 
@@ -667,6 +676,7 @@ func (m *interactiveModel) selectPrevRemoveSegment() {
 		m.trimActiveSegment = len(m.trimSegments) - 1
 	}
 	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
 	m.syncVideoTrimTimelineInputs()
 }
 
@@ -686,6 +696,7 @@ func (m *interactiveModel) deleteActiveRemoveSegment() error {
 		m.trimActiveSegment = len(m.trimSegments) - 1
 	}
 	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
 	m.syncVideoTrimTimelineInputs()
 	return nil
 }
@@ -705,8 +716,78 @@ func (m *interactiveModel) mergeRemoveTimelineSegments() error {
 	m.trimSegments = merged
 	m.trimActiveSegment = nearestSegmentIndex(activeStart, merged)
 	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
 	m.syncVideoTrimTimelineInputs()
 	return nil
+}
+
+func (m *interactiveModel) moveTimelineCursor(delta float64) {
+	if m.trimMode != trimModeRemove || len(m.trimSegments) == 0 || delta == 0 {
+		return
+	}
+	maxSec := m.trimTimelineMax
+	if maxSec <= 0 {
+		maxSec = m.trimTimelineEnd + 15
+		if maxSec < 60 {
+			maxSec = 60
+		}
+	}
+	if m.trimTimelineCursor <= 0 {
+		m.centerTimelineCursorOnActiveSegment()
+	}
+	next := m.trimTimelineCursor + delta
+	if next < 0 {
+		next = 0
+	}
+	if next > maxSec {
+		next = maxSec
+	}
+	m.trimTimelineCursor = next
+
+	selectedIdx := nearestSegmentIndex(m.trimTimelineCursor, m.trimSegments)
+	for i, r := range m.trimSegments {
+		if m.trimTimelineCursor >= r.Start && m.trimTimelineCursor <= r.End {
+			selectedIdx = i
+			break
+		}
+	}
+	m.trimActiveSegment = selectedIdx
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+}
+
+func (m *interactiveModel) selectRemoveSegmentByKey(key string) error {
+	if m.trimMode != trimModeRemove {
+		return nil
+	}
+	if len(m.trimSegments) == 0 {
+		return fmt.Errorf("seçilecek segment yok")
+	}
+	if len(key) != 1 || key[0] < '1' || key[0] > '9' {
+		return fmt.Errorf("geçersiz segment kısayolu: %s", key)
+	}
+
+	idx := int(key[0] - '1')
+	if idx < 0 || idx >= len(m.trimSegments) {
+		return fmt.Errorf("%d. segment mevcut değil", idx+1)
+	}
+	m.trimActiveSegment = idx
+	m.syncTimelineFromActiveRemoveSegment()
+	m.centerTimelineCursorOnActiveSegment()
+	m.syncVideoTrimTimelineInputs()
+	return nil
+}
+
+func (m *interactiveModel) centerTimelineCursorOnActiveSegment() {
+	if len(m.trimSegments) == 0 {
+		m.trimTimelineCursor = 0
+		return
+	}
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	active := m.trimSegments[m.trimActiveSegment]
+	m.trimTimelineCursor = (active.Start + active.End) / 2
 }
 
 func nearestSegmentIndex(anchor float64, segments []trimRange) int {
@@ -737,6 +818,26 @@ func absFloat(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+func timelinePosForSecond(sec float64, maxSec float64, width int) int {
+	if width <= 1 || maxSec <= 0 {
+		return 0
+	}
+	if sec < 0 {
+		sec = 0
+	}
+	if sec > maxSec {
+		sec = maxSec
+	}
+	pos := int((sec / maxSec) * float64(width-1))
+	if pos < 0 {
+		return 0
+	}
+	if pos >= width {
+		return width - 1
+	}
+	return pos
 }
 
 func (m *interactiveModel) syncVideoTrimTimelineInputs() {
@@ -889,6 +990,10 @@ func (m interactiveModel) viewVideoTrimTimeline() string {
 	b.WriteString("\n")
 	b.WriteString(infoStyle.Render(fmt.Sprintf("  Aralık Süresi: %s", lengthLabel)))
 	b.WriteString("\n")
+	if m.trimMode == trimModeRemove {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  İmleç: %s", formatTrimSecondsHuman(m.trimTimelineCursor))))
+		b.WriteString("\n")
+	}
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  Adım: %.1fs", m.trimTimelineStep)))
 	b.WriteString("\n")
 
@@ -939,9 +1044,11 @@ func (m interactiveModel) viewVideoTrimTimeline() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ←/→ Aralığı kaydır  •  ↑/↓ veya Tab odak değiştir (başlangıç/bitiş)"))
+	b.WriteString(dimStyle.Render("  ←/→ Aktif aralık sınırını değiştir  •  ↑/↓ veya Tab odak değiştir (başlangıç/bitiş)"))
 	b.WriteString("\n")
 	if m.trimMode == trimModeRemove {
+		b.WriteString(dimStyle.Render("  ,/. İmleç taşı (en yakın segment aktif olur)  •  1-9 Direkt segment seç"))
+		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("  a Yeni segment  •  n/p Segment gez  •  d Sil  •  m Birleştir"))
 		b.WriteString("\n")
 	}
@@ -962,44 +1069,76 @@ func (m interactiveModel) videoTrimTimelineBar(width int) string {
 		maxSec = 60
 	}
 
-	startPos := int((m.trimTimelineStart / maxSec) * float64(width-1))
-	endPos := int((m.trimTimelineEnd / maxSec) * float64(width-1))
-	if startPos < 0 {
-		startPos = 0
-	}
-	if startPos > width-1 {
-		startPos = width - 1
-	}
-	if endPos < startPos {
-		endPos = startPos
-	}
-	if endPos > width-1 {
-		endPos = width - 1
-	}
+	const (
+		timelineBase = iota
+		timelineRange
+		timelineActiveRange
+		timelineMarker
+		timelineCursor
+	)
 
 	runes := make([]rune, width)
+	styles := make([]int, width)
 	for i := 0; i < width; i++ {
 		runes[i] = '─'
+		styles[i] = timelineBase
 	}
-	for i := startPos; i <= endPos && i < width; i++ {
-		runes[i] = '━'
-	}
-	runes[startPos] = '◆'
-	runes[endPos] = '◆'
 
-	rangeStyle := lipgloss.NewStyle().Foreground(accentColor)
+	setRange := func(startSec float64, endSec float64, active bool) {
+		startPos := timelinePosForSecond(startSec, maxSec, width)
+		endPos := timelinePosForSecond(endSec, maxSec, width)
+		if endPos < startPos {
+			endPos = startPos
+		}
+		fillStyle := timelineRange
+		if active {
+			fillStyle = timelineActiveRange
+		}
+		for i := startPos; i <= endPos && i < width; i++ {
+			runes[i] = '━'
+			if fillStyle > styles[i] {
+				styles[i] = fillStyle
+			}
+		}
+		runes[startPos] = '◆'
+		runes[endPos] = '◆'
+		styles[startPos] = timelineMarker
+		styles[endPos] = timelineMarker
+	}
+
+	if m.trimMode == trimModeRemove && len(m.trimSegments) > 0 {
+		for i, seg := range m.trimSegments {
+			setRange(seg.Start, seg.End, i == m.trimActiveSegment)
+		}
+	} else {
+		setRange(m.trimTimelineStart, m.trimTimelineEnd, true)
+	}
+
+	if m.trimMode == trimModeRemove {
+		cursorPos := timelinePosForSecond(m.trimTimelineCursor, maxSec, width)
+		runes[cursorPos] = '│'
+		styles[cursorPos] = timelineCursor
+	}
+
 	baseStyle := lipgloss.NewStyle().Foreground(dimTextColor)
+	rangeStyle := lipgloss.NewStyle().Foreground(secondaryColor)
+	activeStyle := lipgloss.NewStyle().Foreground(accentColor)
 	markerStyle := lipgloss.NewStyle().Foreground(warningColor).Bold(true)
+	cursorStyle := lipgloss.NewStyle().Foreground(textColor).Bold(true)
 
 	var b strings.Builder
 	b.WriteString(baseStyle.Render("["))
 	for i, r := range runes {
 		ch := string(r)
-		switch {
-		case i == startPos || i == endPos:
-			b.WriteString(markerStyle.Render(ch))
-		case i >= startPos && i <= endPos:
+		switch styles[i] {
+		case timelineRange:
 			b.WriteString(rangeStyle.Render(ch))
+		case timelineActiveRange:
+			b.WriteString(activeStyle.Render(ch))
+		case timelineMarker:
+			b.WriteString(markerStyle.Render(ch))
+		case timelineCursor:
+			b.WriteString(cursorStyle.Render(ch))
 		default:
 			b.WriteString(baseStyle.Render(ch))
 		}

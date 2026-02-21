@@ -282,22 +282,23 @@ type interactiveModel struct {
 	resizeValidationErr string
 
 	// Video trim
-	trimStartInput    string
-	trimDurationInput string
-	trimEndInput      string
-	trimRangeType     string
-	trimMode          string
-	trimCodec         string
-	trimCodecNote     string
-	trimTimelineStart float64
-	trimTimelineEnd   float64
-	trimTimelineMax   float64
-	trimTimelineStep  float64
-	trimTimelineKnown bool
-	trimSegments      []trimRange
-	trimActiveSegment int
-	trimValidationErr string
-	trimPreviewPlan   *videoTrimPlan
+	trimStartInput     string
+	trimDurationInput  string
+	trimEndInput       string
+	trimRangeType      string
+	trimMode           string
+	trimCodec          string
+	trimCodecNote      string
+	trimTimelineStart  float64
+	trimTimelineEnd    float64
+	trimTimelineMax    float64
+	trimTimelineStep   float64
+	trimTimelineKnown  bool
+	trimTimelineCursor float64
+	trimSegments       []trimRange
+	trimActiveSegment  int
+	trimValidationErr  string
+	trimPreviewPlan    *videoTrimPlan
 }
 
 type browserEntry struct {
@@ -740,6 +741,12 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "]":
 				m.trimTimelineStep = increaseTimelineStep(m.trimTimelineStep)
 				return m, nil
+			case ",", "<", "shift+left":
+				m.moveTimelineCursor(-m.trimTimelineStep)
+				return m, nil
+			case ".", ">", "shift+right":
+				m.moveTimelineCursor(m.trimTimelineStep)
+				return m, nil
 			case "a":
 				if err := m.addRemoveTimelineSegment(); err != nil {
 					m.trimValidationErr = err.Error()
@@ -762,6 +769,13 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "m":
 				if err := m.mergeRemoveTimelineSegments(); err != nil {
+					m.trimValidationErr = err.Error()
+				} else {
+					m.trimValidationErr = ""
+				}
+				return m, nil
+			case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+				if err := m.selectRemoveSegmentByKey(msg.String()); err != nil {
 					m.trimValidationErr = err.Error()
 				} else {
 					m.trimValidationErr = ""
@@ -1914,6 +1928,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimTimelineCursor = 0
 	m.trimSegments = nil
 	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
@@ -2068,6 +2083,7 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimTimelineCursor = 0
 	m.trimSegments = nil
 	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
