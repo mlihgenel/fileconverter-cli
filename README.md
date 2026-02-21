@@ -216,6 +216,9 @@ fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
 # 23-25 saniye aralığını videodan sil ve kalan parçaları birleştir
 fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2
 
+# Birden fazla aralığı tek seferde sil (sadece remove modunda)
+fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08,00:00:20-00:00:25"
+
 # Belirli aralıktan klip çıkar ve yeniden encode et
 fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
 ```
@@ -325,6 +328,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--start` | - | İşlem başlangıç zamanı (örn: `00:00:05`) |
 | `--end` | - | Bitiş zamanı (`--duration` ile birlikte kullanılamaz) |
 | `--duration` | - | İşlem süresi (örn: `10`, `00:00:10`) |
+| `--ranges` | - | Sadece `remove` modunda çoklu aralık listesi (örn: `00:00:05-00:00:08,00:00:20-00:00:25`) |
 | `--codec` | - | `copy` veya `reencode` |
 | `--to` | - | Hedef format (`mp4`, `mov` vb.) |
 | `--output-file` | - | Tam çıktı dosya yolu |
