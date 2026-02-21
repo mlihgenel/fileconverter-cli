@@ -97,6 +97,12 @@ go build -o fileconverter-cli .
 ./fileconverter-cli --help
 ```
 
+Not: Sürüm bilgisi artık build metadata'dan otomatik okunur; `main.go` içinde elle sürüm güncellemek gerekmez.
+Release için isterseniz sürümü build anında net verebilirsiniz:
+```bash
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty | sed 's/^v//')" -o fileconverter-cli .
+```
+
 Windows için:
 ```powershell
 go build -o fileconverter-cli.exe .
