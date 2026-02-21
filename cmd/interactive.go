@@ -123,6 +123,103 @@ var categories = []formatCategory{
 	{Name: "Video Dosyaları", Icon: "🎬", Desc: "MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV (GIF'e dönüştürme dahil)", Formats: []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}},
 }
 
+type mainMenuAction string
+
+const (
+	menuActionConvertSingle mainMenuAction = "convert-single"
+	menuActionConvertBatch  mainMenuAction = "convert-batch"
+	menuActionWatch         mainMenuAction = "watch"
+	menuActionVideoTrim     mainMenuAction = "video-trim"
+	menuActionResizeSingle  mainMenuAction = "resize-single"
+	menuActionResizeBatch   mainMenuAction = "resize-batch"
+	menuActionFormats       mainMenuAction = "formats"
+	menuActionDependencies  mainMenuAction = "dependencies"
+	menuActionSettings      mainMenuAction = "settings"
+)
+
+type mainMenuItem struct {
+	Label  string
+	Icon   string
+	Desc   string
+	Action mainMenuAction
+}
+
+type mainMenuSection struct {
+	ID    string
+	Label string
+	Icon  string
+	Desc  string
+	Items []mainMenuItem
+}
+
+var topLevelSections = []mainMenuSection{
+	{
+		ID:    "conversion",
+		Label: "Dönüştürme",
+		Icon:  "🔄",
+		Desc:  "Tekli, toplu ve izleme modları",
+		Items: []mainMenuItem{
+			{Label: "Tek Dosya Dönüştür", Icon: "🧾", Desc: "Bir dosyayı başka formata dönüştür", Action: menuActionConvertSingle},
+			{Label: "Toplu Dönüştür (Batch)", Icon: "📦", Desc: "Bir klasördeki dosyaları toplu dönüştür", Action: menuActionConvertBatch},
+			{Label: "Klasör İzle (Watch)", Icon: "👀", Desc: "Yeni dosyaları otomatik dönüştür", Action: menuActionWatch},
+		},
+	},
+	{
+		ID:    "video",
+		Label: "Video Araçları",
+		Icon:  "🎬",
+		Desc:  "Klip çıkarma ve aralık silme",
+		Items: []mainMenuItem{
+			{Label: "Video Düzenle (Klip/Sil)", Icon: "✂️", Desc: "Aralık seçerek klip çıkar veya videodan sil", Action: menuActionVideoTrim},
+		},
+	},
+	{
+		ID:    "resize",
+		Label: "Boyutlandırma",
+		Icon:  "📐",
+		Desc:  "Tekli ve toplu resize akışları",
+		Items: []mainMenuItem{
+			{Label: "Boyutlandır (Tek Dosya)", Icon: "🖼️", Desc: "Tek dosyada boyut ayarı yap", Action: menuActionResizeSingle},
+			{Label: "Toplu Boyutlandır", Icon: "🗂️", Desc: "Klasördeki dosyaları toplu boyutlandır", Action: menuActionResizeBatch},
+		},
+	},
+	{
+		ID:    "system",
+		Label: "Bilgi ve Ayarlar",
+		Icon:  "⚙️",
+		Desc:  "Format rehberi, sistem durumu ve ayarlar",
+		Items: []mainMenuItem{
+			{Label: "Desteklenen Formatlar", Icon: "📋", Desc: "Kategori bazlı format desteğini görüntüle", Action: menuActionFormats},
+			{Label: "Sistem Kontrolü", Icon: "🔧", Desc: "FFmpeg/LibreOffice/Pandoc durumunu gör", Action: menuActionDependencies},
+			{Label: "Ayarlar", Icon: "🛠️", Desc: "Varsayılan çıktı dizini ve tercihleri yönet", Action: menuActionSettings},
+		},
+	},
+}
+
+func topLevelMenuChoices() (choices []string, icons []string, descs []string) {
+	choices = make([]string, 0, len(topLevelSections)+1)
+	icons = make([]string, 0, len(topLevelSections)+1)
+	descs = make([]string, 0, len(topLevelSections)+1)
+	for _, section := range topLevelSections {
+		choices = append(choices, section.Label)
+		icons = append(icons, section.Icon)
+		descs = append(descs, section.Desc)
+	}
+	choices = append(choices, "Çıkış")
+	icons = append(icons, "👋")
+	descs = append(descs, "Uygulamadan çık")
+	return choices, icons, descs
+}
+
+func findTopLevelSection(id string) (mainMenuSection, bool) {
+	for _, section := range topLevelSections {
+		if section.ID == id {
+			return section, true
+		}
+	}
+	return mainMenuSection{}, false
+}
+
 // ========================================
 // State Machine
 // ========================================
@@ -134,6 +231,7 @@ const (
 	stateWelcomeDeps
 	stateWelcomeInstalling
 	stateMainMenu
+	stateMainSectionMenu
 	stateSelectCategory
 	stateSelectSourceFormat
 	stateSelectTargetFormat
@@ -181,6 +279,7 @@ type interactiveModel struct {
 	choices     []string
 	choiceIcons []string
 	choiceDescs []string
+	mainSection string
 
 	// Kategori
 	selectedCategory int
@@ -344,6 +443,7 @@ type tickMsg time.Time
 func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interactiveModel {
 	homeDir := getHomeDir()
 	defaults := loadInteractiveDefaults()
+	mainChoices, mainIcons, mainDescs := topLevelMenuChoices()
 
 	initialState := stateMainMenu
 	if firstRun {
@@ -360,33 +460,12 @@ func newInteractiveModel(deps []converter.ExternalTool, firstRun bool) interacti
 	}
 
 	return interactiveModel{
-		state:  initialState,
-		cursor: 0,
-		choices: []string{
-			"Dosya Dönüştür",
-			"Toplu Dönüştür (Batch)",
-			"Klasör İzle (Watch)",
-			"Video Düzenle (Klip/Sil)",
-			"Boyutlandır",
-			"Toplu Boyutlandır",
-			"Desteklenen Formatlar",
-			"Sistem Kontrolü",
-			"Ayarlar",
-			"Çıkış",
-		},
-		choiceIcons: []string{"🔄", "📦", "👀", "✂️", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"},
-		choiceDescs: []string{
-			"Tek bir dosyayı başka formata dönüştür",
-			"Dizindeki tüm dosyaları toplu dönüştür",
-			"Klasörde yeni dosyaları izleyip otomatik dönüştür",
-			"Videodan aralık çıkarır veya aralığı silip kalanları birleştirir",
-			"Tek dosya için görsel/video boyutlandırma",
-			"Dizindeki dosyalar için toplu boyutlandırma",
-			"Desteklenen format ve dönüşüm yollarını gör",
-			"Harici araçların (FFmpeg, LibreOffice, Pandoc) durumu",
-			"Varsayılan çıktı dizini ve tercihler",
-			"Uygulamadan çık",
-		},
+		state:             initialState,
+		cursor:            0,
+		choices:           mainChoices,
+		choiceIcons:       mainIcons,
+		choiceDescs:       mainDescs,
+		mainSection:       "",
 		browserDir:        selectedOutput,
 		defaultOutput:     selectedOutput,
 		width:             80,
@@ -872,6 +951,8 @@ func (m interactiveModel) View() string {
 		return m.viewWelcomeInstalling()
 	case stateMainMenu:
 		return m.viewMainMenu()
+	case stateMainSectionMenu:
+		return m.viewMainSectionMenu()
 	case stateSelectCategory:
 		if m.flowResizeOnly {
 			return m.viewSelectCategory("Boyutlandırma — Dosya türü seçin:")
@@ -957,7 +1038,7 @@ func (m interactiveModel) View() string {
 func (m interactiveModel) viewMainMenu() string {
 	var b strings.Builder
 
-	// Ana başlık: ortalı, sade ve şık görünüm.
+	// Ana başlık
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#CBD5E1"))
 	for _, raw := range welcomeArt {
 		line := strings.TrimLeft(raw, " ")
@@ -972,7 +1053,7 @@ func (m interactiveModel) viewMainMenu() string {
 	b.WriteString("\n")
 
 	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(" ◆ Ana Menü "))
+	b.WriteString(menuTitleStyle.Render(" ◆ Ana Menü — Bölüm Seç "))
 	b.WriteString("\n\n")
 
 	for i, choice := range m.choices {
@@ -987,6 +1068,73 @@ func (m interactiveModel) viewMainMenu() string {
 		label := menuLine(icon, choice)
 
 		if i == m.cursor {
+			card := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(secondaryColor).
+				Padding(0, 1).
+				MarginLeft(1)
+			b.WriteString(card.Render(selectedItemStyle.Render("▸ " + label)))
+			b.WriteString("\n")
+			if desc != "" {
+				b.WriteString(lipgloss.NewStyle().PaddingLeft(6).Foreground(dimTextColor).Italic(true).Render(desc))
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(normalItemStyle.Render("  " + label))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+	quickStart := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Padding(0, 1).
+		MarginLeft(1)
+	b.WriteString(quickStart.Render(
+		lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Hızlı Başlangıç") + "\n" +
+			dimStyle.Render("1) Dönüştürme → Tek Dosya Dönüştür") + "\n" +
+			dimStyle.Render("2) Dosyanı seç, hedef formatı belirle, Enter ile başlat") + "\n" +
+			dimStyle.Render("3) Video için: Video Araçları bölümünü kullan") + "\n" +
+			dimStyle.Render("4) CLI ile kullanım: fileconverter-cli --help"),
+	))
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  q Çıkış"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func (m interactiveModel) viewMainSectionMenu() string {
+	var b strings.Builder
+
+	section, ok := findTopLevelSection(m.mainSection)
+	if !ok {
+		b.WriteString("\n")
+		b.WriteString(errorStyle.Render("  Bölüm bulunamadı."))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  Esc Ana Menü"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	b.WriteString("\n")
+	b.WriteString(menuTitleStyle.Render(fmt.Sprintf(" ◆ %s %s ", section.Icon, section.Label)))
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(dimTextColor).PaddingLeft(2).Italic(true).Render(section.Desc))
+	b.WriteString("\n\n")
+
+	for i, choice := range m.choices {
+		icon := ""
+		if i < len(m.choiceIcons) {
+			icon = m.choiceIcons[i]
+		}
+		desc := ""
+		if i < len(m.choiceDescs) {
+			desc = m.choiceDescs[i]
+		}
+		label := menuLine(icon, choice)
+		if i == m.cursor {
 			b.WriteString(selectedItemStyle.Render("▸ " + label))
 			b.WriteString("\n")
 			if desc != "" {
@@ -1000,9 +1148,11 @@ func (m interactiveModel) viewMainMenu() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  q Çıkış"))
+	b.WriteString(dimStyle.Render("  CLI yardımı: fileconverter-cli --help  •  fileconverter-cli help <komut>"))
 	b.WriteString("\n")
-
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin  •  Enter Seç  •  Esc Ana Menü"))
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -1353,57 +1503,62 @@ func (m interactiveModel) viewBatchDone() string {
 func (m interactiveModel) viewFormats() string {
 	var b strings.Builder
 
-	b.WriteString("\n")
-	b.WriteString(menuTitleStyle.Render(" ◆ Desteklenen Dönüşümler "))
-	b.WriteString("\n\n")
-
 	pairs := converter.GetAllConversions()
+	allFormats := converter.GetAllFormats()
+	sort.Strings(allFormats)
 
 	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true, "odt": true, "rtf": true, "csv": true}
 	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true, "opus": true, "webm": true}
 	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true, "ico": true}
 	videoFormats := map[string]bool{"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true, "m4v": true, "wmv": true, "flv": true, "gif": true}
 
-	// Belge formatları
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  Belge Formatlari"))
-	b.WriteString("\n")
-	for _, p := range pairs {
-		if docFormats[p.From] && docFormats[p.To] {
-			b.WriteString(fmt.Sprintf("     %s → %s\n",
-				lipgloss.NewStyle().Bold(true).Foreground(textColor).Render(strings.ToUpper(p.From)),
-				successStyle.Render(strings.ToUpper(p.To))))
-		}
-	}
-
-	// Ses
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  Ses Formatlari"))
+	ffmpegStatus := "Var"
+	ffmpegStyle := successStyle
 	if !converter.IsFFmpegAvailable() {
-		b.WriteString(errorStyle.Render("  FFmpeg gerekli"))
+		ffmpegStatus = "Yok"
+		ffmpegStyle = errorStyle
 	}
-	b.WriteString("\n")
-	audioList := sortedKeys(audioFormats)
-	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(audioList, " ↔ ")+"  (çapraz)")))
-
-	// Görsel
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  Gorsel Formatlari"))
-	b.WriteString("\n")
-	imgList := sortedKeys(imgFormats)
-	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(imgList, " ↔ ")+"  (çapraz)")))
-
-	// Video
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("  Video Formatlari"))
-	if !converter.IsFFmpegAvailable() {
-		b.WriteString(errorStyle.Render("  FFmpeg gerekli"))
+	libreStatus := "Yok"
+	libreStyle := errorStyle
+	if m.dependencyAvailable("libreoffice") {
+		libreStatus = "Var"
+		libreStyle = successStyle
 	}
-	b.WriteString("\n")
-	videoList := sortedKeys(videoFormats)
-	b.WriteString(fmt.Sprintf("     %s\n", dimStyle.Render(strings.Join(videoList, " ↔ ")+"  (GIF dahil)")))
+	pandocStatus := "Yok"
+	pandocStyle := errorStyle
+	if m.dependencyAvailable("pandoc") {
+		pandocStatus = "Var"
+		pandocStyle = successStyle
+	}
 
 	b.WriteString("\n")
-	b.WriteString(infoStyle.Render(fmt.Sprintf("  Toplam: %d dönüşüm yolu", len(pairs))))
+	b.WriteString(menuTitleStyle.Render(" ◆ Desteklenen Formatlar ve Dönüşümler "))
+	b.WriteString("\n\n")
+
+	summaryCard := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Padding(0, 1).
+		MarginLeft(1)
+	summary := fmt.Sprintf(
+		"%s\n%s\n%s",
+		infoStyle.Render(fmt.Sprintf("Toplam Format: %d  •  Dönüşüm Yolu: %d", len(allFormats), len(pairs))),
+		fmt.Sprintf("FFmpeg: %s   LibreOffice: %s   Pandoc: %s", ffmpegStyle.Render(ffmpegStatus), libreStyle.Render(libreStatus), pandocStyle.Render(pandocStatus)),
+		dimStyle.Render("Not: Bazı belge/video dönüşümleri için ilgili araçların kurulu olması gerekir."),
+	)
+	b.WriteString(summaryCard.Render(summary))
+	b.WriteString("\n\n")
+
+	b.WriteString(renderFormatGroupCard("📄 Belge", docFormats, pairs, "Belge dönüşümlerinde LibreOffice/Pandoc gerekebilir."))
+	b.WriteString("\n")
+	b.WriteString(renderFormatGroupCard("🎵 Ses", audioFormats, pairs, "Ses dönüştürmeleri FFmpeg ile yapılır."))
+	b.WriteString("\n")
+	b.WriteString(renderFormatGroupCard("🖼️ Görsel", imgFormats, pairs, "Yaygın görsel formatları arasında çapraz dönüşüm desteklenir."))
+	b.WriteString("\n")
+	b.WriteString(renderFormatGroupCard("🎬 Video", videoFormats, pairs, "Video dönüştürme ve GIF üretimi FFmpeg ile yapılır."))
+
+	b.WriteString("\n\n")
+	b.WriteString(infoStyle.Render("  Hızlı İpucu: Ana menüden önce bölüm seç, sonra ilgili işlemi başlat."))
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render("  Esc Ana Menü"))
 	b.WriteString("\n")
@@ -1414,6 +1569,37 @@ func (m interactiveModel) viewFormats() string {
 // ========================================
 // İşlem Mantığı
 // ========================================
+
+func (m interactiveModel) runMainMenuAction(action mainMenuAction) (interactiveModel, tea.Cmd) {
+	switch action {
+	case menuActionConvertSingle:
+		return m.goToCategorySelect(false, false, false), nil
+	case menuActionConvertBatch:
+		return m.goToCategorySelect(true, false, false), nil
+	case menuActionWatch:
+		return m.goToCategorySelect(true, false, true), nil
+	case menuActionVideoTrim:
+		return m.goToVideoTrimBrowser(), nil
+	case menuActionResizeSingle:
+		return m.goToCategorySelect(false, true, false), nil
+	case menuActionResizeBatch:
+		return m.goToCategorySelect(true, true, false), nil
+	case menuActionFormats:
+		m.state = stateFormats
+		m.cursor = 0
+		return m, nil
+	case menuActionDependencies:
+		m.state = stateDependencies
+		m.cursor = 0
+		return m, nil
+	case menuActionSettings:
+		m.state = stateSettings
+		m.cursor = 0
+		return m, nil
+	default:
+		return m, nil
+	}
+}
 
 func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 	switch m.state {
@@ -1461,36 +1647,28 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		return m.goToMainMenu(), nil
 
 	case stateMainMenu:
-		switch m.cursor {
-		case 0:
-			return m.goToCategorySelect(false, false, false), nil
-		case 1:
-			return m.goToCategorySelect(true, false, false), nil
-		case 2:
-			return m.goToCategorySelect(true, false, true), nil
-		case 3:
-			return m.goToVideoTrimBrowser(), nil
-		case 4:
-			return m.goToCategorySelect(false, true, false), nil
-		case 5:
-			return m.goToCategorySelect(true, true, false), nil
-		case 6:
-			m.state = stateFormats
-			m.cursor = 0
-			return m, nil
-		case 7:
-			m.state = stateDependencies
-			m.cursor = 0
-			return m, nil
-		case 8:
-			// Ayarlar
-			m.state = stateSettings
-			m.cursor = 0
-			return m, nil
-		case 9:
+		if m.cursor >= 0 && m.cursor < len(topLevelSections) {
+			return m.goToMainSection(topLevelSections[m.cursor].ID), nil
+		}
+		if m.cursor == len(topLevelSections) {
 			m.quitting = true
 			return m, tea.Quit
 		}
+		return m, nil
+
+	case stateMainSectionMenu:
+		section, ok := findTopLevelSection(m.mainSection)
+		if !ok {
+			return m.goToMainMenu(), nil
+		}
+		if m.cursor == len(section.Items) {
+			return m.goToMainMenu(), nil
+		}
+		if m.cursor < 0 || m.cursor > len(section.Items)-1 {
+			return m, nil
+		}
+		action := section.Items[m.cursor].Action
+		return m.runMainMenuAction(action)
 
 	case stateSelectCategory:
 		if m.cursor >= 0 && m.cursor < len(m.categoryIndices) {
@@ -1886,8 +2064,10 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 }
 
 func (m interactiveModel) goToMainMenu() interactiveModel {
+	mainChoices, mainIcons, mainDescs := topLevelMenuChoices()
 	m.state = stateMainMenu
 	m.cursor = 0
+	m.mainSection = ""
 	m.sourceFormat = ""
 	m.targetFormat = ""
 	m.selectedFile = ""
@@ -1933,37 +2113,40 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
-	m.choices = []string{
-		"Dosya Dönüştür",
-		"Toplu Dönüştür (Batch)",
-		"Klasör İzle (Watch)",
-		"Video Düzenle (Klip/Sil)",
-		"Boyutlandır",
-		"Toplu Boyutlandır",
-		"Desteklenen Formatlar",
-		"Sistem Kontrolü",
-		"Ayarlar",
-		"Çıkış",
+	m.choices = mainChoices
+	m.choiceIcons = mainIcons
+	m.choiceDescs = mainDescs
+	return m
+}
+
+func (m interactiveModel) goToMainSection(sectionID string) interactiveModel {
+	section, ok := findTopLevelSection(sectionID)
+	if !ok {
+		return m.goToMainMenu()
 	}
-	m.choiceIcons = []string{"🔄", "📦", "👀", "✂️", "📐", "🗂️", "📋", "🔧", "⚙️", "👋"}
-	m.choiceDescs = []string{
-		"Tek bir dosyayı başka formata dönüştür",
-		"Dizindeki tüm dosyaları toplu dönüştür",
-		"Klasörde yeni dosyaları izleyip otomatik dönüştür",
-		"Videodan aralık çıkarır veya aralığı silip kalanları birleştirir",
-		"Tek dosya için görsel/video boyutlandırma",
-		"Dizindeki dosyalar için toplu boyutlandırma",
-		"Desteklenen format ve dönüşüm yollarını gör",
-		"Harici araçların (FFmpeg, LibreOffice, Pandoc) durumu",
-		"Varsayılan çıktı dizini ve tercihler",
-		"Uygulamadan çık",
+
+	m.state = stateMainSectionMenu
+	m.mainSection = sectionID
+	m.cursor = 0
+	m.choices = make([]string, 0, len(section.Items)+1)
+	m.choiceIcons = make([]string, 0, len(section.Items)+1)
+	m.choiceDescs = make([]string, 0, len(section.Items)+1)
+	for _, item := range section.Items {
+		m.choices = append(m.choices, item.Label)
+		m.choiceIcons = append(m.choiceIcons, item.Icon)
+		m.choiceDescs = append(m.choiceDescs, item.Desc)
 	}
+	m.choices = append(m.choices, "Ana Menüye Dön")
+	m.choiceIcons = append(m.choiceIcons, "↩️")
+	m.choiceDescs = append(m.choiceDescs, "Üst menüye geri dön")
 	return m
 }
 
 func (m interactiveModel) goBack() interactiveModel {
 	switch m.state {
 	case stateSelectCategory:
+		return m.goToMainMenu()
+	case stateMainSectionMenu:
 		return m.goToMainMenu()
 	case stateSelectSourceFormat:
 		return m.goToCategorySelect(false, m.flowResizeOnly, false)
@@ -2479,6 +2662,48 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func renderFormatGroupCard(title string, formatSet map[string]bool, pairs []converter.ConversionPair, note string) string {
+	formatList := sortedKeys(formatSet)
+	pairCount := countPairsInFormatSet(pairs, formatSet)
+	card := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Padding(0, 1).
+		MarginLeft(1)
+
+	body := lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(title)
+	body += "\n" + infoStyle.Render(fmt.Sprintf("Format: %d  •  Kategori-içi dönüşüm: %d", len(formatList), pairCount))
+	body += "\n" + dimStyle.Render(strings.Join(formatList, "  ·  "))
+	if strings.TrimSpace(note) != "" {
+		body += "\n" + dimStyle.Render("Not: "+note)
+	}
+	return card.Render(body)
+}
+
+func countPairsInFormatSet(pairs []converter.ConversionPair, formatSet map[string]bool) int {
+	total := 0
+	for _, pair := range pairs {
+		if formatSet[pair.From] && formatSet[pair.To] {
+			total++
+		}
+	}
+	return total
+}
+
+func (m interactiveModel) dependencyAvailable(name string) bool {
+	needle := strings.ToLower(strings.TrimSpace(name))
+	if needle == "" {
+		return false
+	}
+	for _, dep := range m.dependencies {
+		depName := strings.ToLower(strings.TrimSpace(dep.Name))
+		if depName == needle || strings.Contains(depName, needle) {
+			return dep.Available
+		}
+	}
+	return false
 }
 
 func formatDuration(d time.Duration) string {

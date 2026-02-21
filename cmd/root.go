@@ -54,8 +54,10 @@ var rootCmd = &cobra.Command{
 Belge, ses, görsel ve video dosyalarını internet'e yüklemeden, tamamen yerel
 olarak farklı formatlara dönüştürmenizi sağlar.
 
-Interaktif ana menu:
-  Dosya Donustur, Toplu Donustur, Klasor Izle, Video Duzenle (Klip/Sil), Boyutlandir, Toplu Boyutlandir
+Kullanim:
+  fileconverter-cli                  # Interaktif TUI (bolum bazli menu)
+  fileconverter-cli --help           # Tum komutlari goster
+  fileconverter-cli help <komut>     # Belirli komut yardimi
 
 Desteklenen kategoriler:
   Belgeler:  MD, HTML, PDF, DOCX, TXT
@@ -79,6 +81,8 @@ Desteklenen kategoriler:
   fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2
   fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08,00:00:20-00:00:25"
   fileconverter-cli video trim input.mp4 --mode remove --ranges "5-8,20-25" --dry-run
+  fileconverter-cli help video
+  fileconverter-cli help formats
   fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,

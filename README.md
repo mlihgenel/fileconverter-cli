@@ -122,13 +122,17 @@ fileconverter-cli help resize-presets
 fileconverter-cli
 ```
 
-Interaktif ana menü:
-- `Dosya Dönüştür`: format dönüşümü (tek dosya)
-- `Toplu Dönüştür`: format dönüşümü (dizin/glob)
-- `Klasör İzle`: yeni dosyaları otomatik dönüştürme
-- `Video Düzenle (Klip/Sil)`: aralık çıkarma veya aralık silme + birleştirme (`başlangıç + süre` ya da `başlangıç + bitiş`)
-- `Boyutlandır`: tek dosya görsel/video boyutlandırma
-- `Toplu Boyutlandır`: dizindeki görsel/video dosyalarını toplu boyutlandırma
+Interaktif ana menü (bölüm bazlı):
+- `Dönüştürme`: tek dosya, toplu ve watch akışları
+- `Video Araçları`: klip çıkarma ve aralık silme + birleştirme (`başlangıç + süre` ya da `başlangıç + bitiş`)
+- `Boyutlandırma`: tek dosya ve toplu boyutlandırma
+- `Bilgi ve Ayarlar`: desteklenen formatlar, sistem kontrolü, ayarlar
+
+TUI açmadan doğrudan CLI ile çalışmak için:
+```bash
+fileconverter-cli --help
+fileconverter-cli help <komut>
+```
 
 ### Format sorgulama
 ```bash
