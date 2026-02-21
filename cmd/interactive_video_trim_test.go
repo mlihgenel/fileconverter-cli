@@ -57,3 +57,53 @@ func TestIsVideoTrimSourceFile(t *testing.T) {
 		t.Fatalf("expected txt to be rejected")
 	}
 }
+
+func TestBuildVideoTrimExecutionClip(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = "/tmp/sample.mp4"
+	m.trimMode = trimModeClip
+	m.trimRangeType = trimRangeDuration
+	m.trimStartInput = "5"
+	m.trimDurationInput = "2"
+	m.trimCodec = "copy"
+	m.defaultOutput = "/tmp"
+
+	execution, err := m.buildVideoTrimExecution()
+	if err != nil {
+		t.Fatalf("unexpected execution build error: %v", err)
+	}
+	if execution.TargetFormat != "mp4" {
+		t.Fatalf("expected target format mp4, got %s", execution.TargetFormat)
+	}
+	if execution.Plan.Mode != trimModeClip {
+		t.Fatalf("expected clip plan mode, got %s", execution.Plan.Mode)
+	}
+	if !execution.Plan.ClipHasEnd || execution.Plan.ClipStartSec != 5 || execution.Plan.ClipEndSec != 7 {
+		t.Fatalf("unexpected clip plan values: %+v", execution.Plan)
+	}
+}
+
+func TestBuildVideoTrimExecutionRemove(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = "/tmp/sample.mp4"
+	m.trimMode = trimModeRemove
+	m.trimRangeType = trimRangeEnd
+	m.trimStartInput = "23"
+	m.trimEndInput = "25"
+	m.trimCodec = "copy"
+	m.defaultOutput = "/tmp"
+
+	execution, err := m.buildVideoTrimExecution()
+	if err != nil {
+		t.Fatalf("unexpected execution build error: %v", err)
+	}
+	if execution.Plan.Mode != trimModeRemove {
+		t.Fatalf("expected remove plan mode, got %s", execution.Plan.Mode)
+	}
+	if len(execution.Plan.RemoveRanges) != 1 {
+		t.Fatalf("expected 1 remove range, got %d", len(execution.Plan.RemoveRanges))
+	}
+	if execution.Plan.RemoveRanges[0].Start != 23 || execution.Plan.RemoveRanges[0].End != 25 {
+		t.Fatalf("unexpected remove range: %+v", execution.Plan.RemoveRanges[0])
+	}
+}

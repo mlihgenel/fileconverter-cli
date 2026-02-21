@@ -124,3 +124,65 @@ func TestBuildKeepSegmentsFromRanges(t *testing.T) {
 		t.Fatalf("unexpected last segment: %+v", segments[2])
 	}
 }
+
+func TestResolveRemoveRanges(t *testing.T) {
+	ranges, err := resolveRemoveRanges("00:00:23", "", "2", nil)
+	if err != nil {
+		t.Fatalf("unexpected resolve error: %v", err)
+	}
+	if len(ranges) != 1 {
+		t.Fatalf("expected single range, got %d", len(ranges))
+	}
+	if ranges[0].Start != 23 || ranges[0].End != 25 {
+		t.Fatalf("unexpected range: %+v", ranges[0])
+	}
+
+	ranges, err = resolveRemoveRanges("", "", "", []trimRange{
+		{Start: 10, End: 12},
+		{Start: 11.5, End: 13},
+	})
+	if err != nil {
+		t.Fatalf("unexpected explicit range error: %v", err)
+	}
+	if len(ranges) != 1 || ranges[0].Start != 10 || ranges[0].End != 13 {
+		t.Fatalf("expected merged explicit range, got %+v", ranges)
+	}
+}
+
+func TestResolveRemoveRangesRejectsInvalid(t *testing.T) {
+	if _, err := resolveRemoveRanges("10", "5", "", nil); err == nil {
+		t.Fatalf("expected error when end <= start")
+	}
+	if _, err := resolveRemoveRanges("bad", "", "2", nil); err == nil {
+		t.Fatalf("expected parse error for invalid start")
+	}
+}
+
+func TestSumKeepSegmentsLength(t *testing.T) {
+	total, known := sumKeepSegmentsLength([]keepSegment{
+		{Start: 0, End: 5, HasEnd: true},
+		{Start: 10, End: 12, HasEnd: true},
+	})
+	if !known {
+		t.Fatalf("expected known=true")
+	}
+	if total != 7 {
+		t.Fatalf("expected total=7, got %.2f", total)
+	}
+
+	_, known = sumKeepSegmentsLength([]keepSegment{
+		{Start: 12, HasEnd: false},
+	})
+	if known {
+		t.Fatalf("expected known=false for open-ended segment")
+	}
+}
+
+func TestFormatTrimSecondsHuman(t *testing.T) {
+	if got := formatTrimSecondsHuman(65); got != "00:01:05" {
+		t.Fatalf("unexpected formatted value: %s", got)
+	}
+	if got := formatTrimSecondsHuman(65.345); got != "00:01:05.345" {
+		t.Fatalf("unexpected formatted millis value: %s", got)
+	}
+}

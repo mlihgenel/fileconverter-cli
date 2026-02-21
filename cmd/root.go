@@ -78,6 +78,7 @@ Desteklenen kategoriler:
   fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
   fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2
   fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08,00:00:20-00:00:25"
+  fileconverter-cli video trim input.mp4 --mode remove --ranges "5-8,20-25" --dry-run
   fileconverter-cli resize-presets
   fileconverter-cli formats`,
 	Version: appVersion,

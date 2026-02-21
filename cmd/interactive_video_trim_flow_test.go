@@ -101,7 +101,7 @@ func TestVideoTrimRangeTypeEndSelection(t *testing.T) {
 	}
 }
 
-func TestVideoTrimCodecStartsConverting(t *testing.T) {
+func TestVideoTrimCodecShowsPreview(t *testing.T) {
 	m := newInteractiveModel(nil, false)
 	m.state = stateVideoTrimCodec
 	m.selectedFile = "/tmp/sample.mp4"
@@ -111,8 +111,38 @@ func TestVideoTrimCodecStartsConverting(t *testing.T) {
 	m.cursor = 0
 
 	nextModel, cmd := m.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no async command on preview step")
+	}
+
+	next, ok := nextModel.(interactiveModel)
+	if !ok {
+		t.Fatalf("unexpected model type")
+	}
+	if next.state != stateVideoTrimPreview {
+		t.Fatalf("expected stateVideoTrimPreview, got %v", next.state)
+	}
+	if next.targetFormat != "mp4" {
+		t.Fatalf("expected detected target format mp4, got %s", next.targetFormat)
+	}
+	if next.trimPreviewPlan == nil {
+		t.Fatalf("expected trim preview plan to be prepared")
+	}
+}
+
+func TestVideoTrimPreviewStartsConverting(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.state = stateVideoTrimPreview
+	m.selectedFile = "/tmp/sample.mp4"
+	m.trimMode = trimModeClip
+	m.trimStartInput = "0"
+	m.trimDurationInput = "2"
+	m.trimCodec = "copy"
+	m.cursor = 0
+
+	nextModel, cmd := m.handleEnter()
 	if cmd == nil {
-		t.Fatalf("expected conversion command")
+		t.Fatalf("expected conversion command from preview")
 	}
 
 	next, ok := nextModel.(interactiveModel)
@@ -122,7 +152,23 @@ func TestVideoTrimCodecStartsConverting(t *testing.T) {
 	if next.state != stateConverting {
 		t.Fatalf("expected stateConverting, got %v", next.state)
 	}
-	if next.targetFormat != "mp4" {
-		t.Fatalf("expected detected target format mp4, got %s", next.targetFormat)
+}
+
+func TestVideoTrimPreviewBackToCodec(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.state = stateVideoTrimPreview
+	m.cursor = 1
+
+	nextModel, cmd := m.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no async command when returning to codec")
+	}
+
+	next, ok := nextModel.(interactiveModel)
+	if !ok {
+		t.Fatalf("unexpected model type")
+	}
+	if next.state != stateVideoTrimCodec {
+		t.Fatalf("expected stateVideoTrimCodec, got %v", next.state)
 	}
 }

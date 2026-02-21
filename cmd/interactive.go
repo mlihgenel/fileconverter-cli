@@ -165,6 +165,7 @@ const (
 	stateVideoTrimRangeType
 	stateVideoTrimDuration
 	stateVideoTrimCodec
+	stateVideoTrimPreview
 )
 
 // ========================================
@@ -287,6 +288,7 @@ type interactiveModel struct {
 	trimMode          string
 	trimCodec         string
 	trimValidationErr string
+	trimPreviewPlan   *videoTrimPlan
 }
 
 type browserEntry struct {
@@ -843,6 +845,8 @@ func (m interactiveModel) View() string {
 		return m.viewVideoTrimNumericInput(fmt.Sprintf("Video %s — Süre (sn veya hh:mm:ss)", m.videoTrimOperationLabel()), m.trimDurationInput, "Örnek: 2 veya 00:00:02")
 	case stateVideoTrimCodec:
 		return m.viewVideoTrimCodecSelect()
+	case stateVideoTrimPreview:
+		return m.viewVideoTrimPreview()
 	default:
 		return ""
 	}
@@ -1432,6 +1436,7 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 					m.trimMode = trimModeClip
 					m.trimCodec = "copy"
 					m.trimValidationErr = ""
+					m.trimPreviewPlan = nil
 					m.state = stateVideoTrimMode
 					m.cursor = 0
 					m.choices = []string{"Klip Çıkar (seçilen aralık)", "Aralığı Sil + Birleştir (kalanı koru)"}
@@ -1646,10 +1651,33 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		} else {
 			m.trimCodec = "reencode"
 		}
+		execution, err := m.buildVideoTrimExecution()
+		if err != nil {
+			m.trimValidationErr = err.Error()
+			return m, nil
+		}
 		m.trimValidationErr = ""
-		m.targetFormat = converter.DetectFormat(m.selectedFile)
-		m.state = stateConverting
-		return m, m.doVideoTrim()
+		m.trimPreviewPlan = &execution.Plan
+		m.targetFormat = execution.TargetFormat
+		m.state = stateVideoTrimPreview
+		m.cursor = 0
+		m.choices = []string{"Onayla ve Uygula", "Geri Dön ve Düzenle"}
+		m.choiceIcons = []string{"✅", "↩️"}
+		m.choiceDescs = []string{
+			"Planı onaylayıp video düzenleme işlemini başlatır",
+			"Codec/zaman ayarlarına geri döner",
+		}
+		return m, nil
+
+	case stateVideoTrimPreview:
+		if m.cursor == 0 {
+			m.trimValidationErr = ""
+			m.state = stateConverting
+			return m, m.doVideoTrim()
+		}
+		m.state = stateVideoTrimCodec
+		m.cursor = 0
+		return m, nil
 
 	case stateBatchBrowser:
 		// Klasör listesinden sayı al
@@ -1767,6 +1795,7 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimMode = ""
 	m.trimCodec = ""
 	m.trimValidationErr = ""
+	m.trimPreviewPlan = nil
 	m.choices = []string{
 		"Dosya Dönüştür",
 		"Toplu Dönüştür (Batch)",
@@ -1870,6 +1899,11 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
+	case stateVideoTrimPreview:
+		m.state = stateVideoTrimCodec
+		m.cursor = 0
+		m.trimValidationErr = ""
+		return m
 	case stateConvertDone, stateBatchDone, stateFormats:
 		return m.goToMainMenu()
 	case stateSettings:
@@ -1902,6 +1936,7 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.trimRangeType = ""
 	m.trimMode = ""
 	m.trimValidationErr = ""
+	m.trimPreviewPlan = nil
 	m.cursor = 0
 
 	m.categoryIndices = nil

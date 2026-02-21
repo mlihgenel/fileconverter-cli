@@ -43,6 +43,7 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Belge, görsel, ses ve video dönüşümleri.
 - `mp4 -> gif` dahil video dönüşümü.
 - Video düzenleme (`video trim`): `clip` modunda aralık çıkarır, `remove` modunda aralığı silip kalan parçaları birleştirir.
+- Video trim preview/plan: CLI’de `--dry-run/--preview`; TUI’de çalıştırmadan önce plan onayı ekranı.
 - Görsel/video boyutlandırma: manuel (`px`/`cm`) veya hazır preset (`story`, `square`, `fullhd` vb.).
 - Oranı koruyarak dikey/yatay uyarlama (`pad`, `fit`, `fill`, `stretch`); `pad` modunda siyah boşluk desteği.
 - Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Düzenle (Klip/Sil)`, `Boyutlandır`, `Toplu Boyutlandır`.
@@ -219,6 +220,9 @@ fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration
 # Birden fazla aralığı tek seferde sil (sadece remove modunda)
 fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08,00:00:20-00:00:25"
 
+# Preview/plan: işlemden önce tam etkiyi gör (dosya yazmaz)
+fileconverter-cli video trim input.mp4 --mode remove --ranges "5-8,20-25" --dry-run
+
 # Belirli aralıktan klip çıkar ve yeniden encode et
 fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
 ```
@@ -329,6 +333,8 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--end` | - | Bitiş zamanı (`--duration` ile birlikte kullanılamaz) |
 | `--duration` | - | İşlem süresi (örn: `10`, `00:00:10`) |
 | `--ranges` | - | Sadece `remove` modunda çoklu aralık listesi (örn: `00:00:05-00:00:08,00:00:20-00:00:25`) |
+| `--dry-run` | - | İşlem yapmadan plan/etki ön izlemesi gösterir |
+| `--preview` | - | `--dry-run` ile aynı davranış |
 | `--codec` | - | `copy` veya `reencode` |
 | `--to` | - | Hedef format (`mp4`, `mov` vb.) |
 | `--output-file` | - | Tam çıktı dosya yolu |

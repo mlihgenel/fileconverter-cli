@@ -21,6 +21,8 @@ var (
 	videoTrimEnd        string
 	videoTrimDuration   string
 	videoTrimRanges     string
+	videoTrimDryRun     bool
+	videoTrimPreview    bool
 	videoTrimMode       string
 	videoTrimCodec      string
 	videoTrimOutputFile string
@@ -64,6 +66,7 @@ var videoTrimCmd = &cobra.Command{
   fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 00:00:10
   fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2
   fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08,00:00:20-00:00:25"
+  fileconverter-cli video trim input.mp4 --mode remove --ranges "5-8,20-25" --dry-run
   fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
   fileconverter-cli video trim input.mov --duration 15 --to mp4 --on-conflict versioned`,
 	Args: cobra.ExactArgs(1),
@@ -103,6 +106,7 @@ var videoTrimCmd = &cobra.Command{
 		}
 		mode := normalizeTrimMode(videoTrimMode)
 		codec := normalizeTrimCodec(videoTrimCodec)
+		previewMode := videoTrimDryRun || videoTrimPreview
 		if strings.TrimSpace(videoTrimRanges) != "" && (cmd.Flags().Changed("start") || cmd.Flags().Changed("end") || cmd.Flags().Changed("duration")) {
 			return fmt.Errorf("--ranges kullanırken --start/--end/--duration birlikte kullanılamaz")
 		}
@@ -141,8 +145,29 @@ var videoTrimCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if skip {
+		if skip && !previewMode {
 			ui.PrintWarning(fmt.Sprintf("Çıktı dosyası mevcut, atlandı: %s", outputPath))
+			return nil
+		}
+		if previewMode {
+			plan, err := buildVideoTrimPlan(
+				input,
+				outputPath,
+				mode,
+				startValue,
+				endValue,
+				durationValue,
+				removeRanges,
+				codec,
+				videoTrimQuality,
+				metadataMode,
+				conflict,
+				skip,
+			)
+			if err != nil {
+				return err
+			}
+			printVideoTrimPlan(plan)
 			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
@@ -179,6 +204,8 @@ func init() {
 	videoTrimCmd.Flags().StringVar(&videoTrimEnd, "end", "", "Bitiş zamanı (örn: 00:02:00)")
 	videoTrimCmd.Flags().StringVar(&videoTrimDuration, "duration", "", "İşlem süresi (örn: 15, 00:00:15)")
 	videoTrimCmd.Flags().StringVar(&videoTrimRanges, "ranges", "", "Sadece remove modunda çoklu aralık listesi (örn: 00:00:05-00:00:08,00:00:20-00:00:25)")
+	videoTrimCmd.Flags().BoolVar(&videoTrimDryRun, "dry-run", false, "Ön izleme/plan modu: işlem yapmadan etkiyi gösterir")
+	videoTrimCmd.Flags().BoolVar(&videoTrimPreview, "preview", false, "Ön izleme modu (--dry-run ile aynı)")
 	videoTrimCmd.Flags().StringVar(&videoTrimMode, "mode", trimModeClip, "İşlem modu: clip veya remove")
 	videoTrimCmd.Flags().StringVar(&videoTrimCodec, "codec", "copy", "Codec modu: copy veya reencode")
 	videoTrimCmd.Flags().StringVar(&videoTrimOutputFile, "output-file", "", "Tam çıktı dosya yolu")
@@ -450,35 +477,285 @@ func runTrimFFmpeg(input string, output string, start string, end string, durati
 }
 
 func runTrimRemoveFFmpeg(input string, output string, start string, end string, duration string, codec string, quality int, metadataMode string, verbose bool) error {
-	startSec, err := parseVideoTrimToSeconds(start)
+	removeRanges, err := resolveRemoveRanges(start, end, duration, nil)
 	if err != nil {
-		return fmt.Errorf("geçersiz başlangıç zamanı")
+		return err
 	}
-
-	endSec := 0.0
-	if strings.TrimSpace(end) != "" {
-		endSec, err = parseVideoTrimToSeconds(end)
-	} else {
-		durationSec, parseErr := parseVideoTrimToSeconds(duration)
-		if parseErr != nil {
-			return fmt.Errorf("geçersiz süre değeri")
-		}
-		endSec = startSec + durationSec
-	}
-	if err != nil {
-		return fmt.Errorf("geçersiz bitiş zamanı")
-	}
-	if endSec <= startSec {
-		return fmt.Errorf("bitiş zamanı başlangıçtan büyük olmalıdır")
-	}
-
-	return runTrimRemoveRangesFFmpeg(input, output, []trimRange{{Start: startSec, End: endSec}}, codec, quality, metadataMode, verbose)
+	return runTrimRemoveRangesFFmpeg(input, output, removeRanges, codec, quality, metadataMode, verbose)
 }
 
 type keepSegment struct {
 	Start  float64
 	End    float64
 	HasEnd bool
+}
+
+type videoTrimPlan struct {
+	Input             string
+	Output            string
+	Mode              string
+	Codec             string
+	Quality           int
+	MetadataMode      string
+	ConflictPolicy    string
+	WouldSkip         bool
+	HasSourceDuration bool
+	SourceDurationSec float64
+	ClipStartSec      float64
+	ClipEndSec        float64
+	ClipHasEnd        bool
+	RemoveRanges      []trimRange
+	KeepSegments      []keepSegment
+}
+
+func buildVideoTrimPlan(
+	input string,
+	output string,
+	mode string,
+	start string,
+	end string,
+	duration string,
+	ranges []trimRange,
+	codec string,
+	quality int,
+	metadataMode string,
+	conflictPolicy string,
+	wouldSkip bool,
+) (videoTrimPlan, error) {
+	plan := videoTrimPlan{
+		Input:          input,
+		Output:         output,
+		Mode:           mode,
+		Codec:          codec,
+		Quality:        quality,
+		MetadataMode:   metadataMode,
+		ConflictPolicy: conflictPolicy,
+		WouldSkip:      wouldSkip,
+	}
+
+	durationSec, hasDuration := probeMediaDurationSeconds(input)
+	plan.HasSourceDuration = hasDuration
+	plan.SourceDurationSec = durationSec
+
+	if mode == trimModeClip {
+		startSec := 0.0
+		if strings.TrimSpace(start) != "" {
+			parsedStart, err := parseVideoTrimToSeconds(start)
+			if err != nil {
+				return plan, fmt.Errorf("geçersiz başlangıç zamanı")
+			}
+			startSec = parsedStart
+		}
+
+		endSec := 0.0
+		hasEnd := false
+		if strings.TrimSpace(end) != "" {
+			parsedEnd, err := parseVideoTrimToSeconds(end)
+			if err != nil {
+				return plan, fmt.Errorf("geçersiz bitiş zamanı")
+			}
+			endSec = parsedEnd
+			hasEnd = true
+		} else if strings.TrimSpace(duration) != "" {
+			parsedDuration, err := parseVideoTrimToSeconds(duration)
+			if err != nil {
+				return plan, fmt.Errorf("geçersiz süre değeri")
+			}
+			endSec = startSec + parsedDuration
+			hasEnd = true
+		}
+
+		if hasDuration {
+			clampedStart, clampedEnd, err := clampTrimWindowToDuration(startSec, endSec, durationSec, trimModeClip)
+			if err != nil {
+				return plan, err
+			}
+			startSec = clampedStart
+			endSec = clampedEnd
+			if !hasEnd {
+				endSec = durationSec
+				hasEnd = true
+			}
+		}
+
+		plan.ClipStartSec = startSec
+		plan.ClipEndSec = endSec
+		plan.ClipHasEnd = hasEnd
+		return plan, nil
+	}
+
+	removeRanges, err := resolveRemoveRanges(start, end, duration, ranges)
+	if err != nil {
+		return plan, err
+	}
+	if hasDuration {
+		removeRanges, err = clampTrimRangesToDuration(removeRanges, durationSec)
+		if err != nil {
+			return plan, err
+		}
+	}
+	keepSegments, err := buildKeepSegmentsFromRanges(removeRanges, durationSec, hasDuration)
+	if err != nil {
+		return plan, err
+	}
+	if len(keepSegments) == 0 {
+		return plan, fmt.Errorf("silinecek aralık tüm videoyu kapsıyor")
+	}
+
+	plan.RemoveRanges = removeRanges
+	plan.KeepSegments = keepSegments
+	return plan, nil
+}
+
+func resolveRemoveRanges(start string, end string, duration string, ranges []trimRange) ([]trimRange, error) {
+	if len(ranges) > 0 {
+		return mergeTrimRanges(ranges), nil
+	}
+
+	startValue := strings.TrimSpace(start)
+	if startValue == "" {
+		startValue = "0"
+	}
+	startSec, err := parseVideoTrimToSeconds(startValue)
+	if err != nil {
+		return nil, fmt.Errorf("geçersiz başlangıç zamanı")
+	}
+
+	endSec := 0.0
+	if strings.TrimSpace(end) != "" {
+		endSec, err = parseVideoTrimToSeconds(end)
+		if err != nil {
+			return nil, fmt.Errorf("geçersiz bitiş zamanı")
+		}
+	} else if strings.TrimSpace(duration) != "" {
+		durationSec, parseErr := parseVideoTrimToSeconds(duration)
+		if parseErr != nil {
+			return nil, fmt.Errorf("geçersiz süre değeri")
+		}
+		endSec = startSec + durationSec
+	} else {
+		return nil, fmt.Errorf("remove işlemi için bitiş veya süre gerekli")
+	}
+	if endSec <= startSec {
+		return nil, fmt.Errorf("bitiş zamanı başlangıçtan büyük olmalıdır")
+	}
+
+	return []trimRange{{Start: startSec, End: endSec}}, nil
+}
+
+func printVideoTrimPlan(plan videoTrimPlan) {
+	ui.PrintInfo("Ön izleme modu (--dry-run/--preview) — işlem yapılmayacak.")
+	ui.PrintConversion(plan.Input, plan.Output)
+
+	modeLabel := "Klip Çıkarma"
+	if plan.Mode == trimModeRemove {
+		modeLabel = "Aralık Sil + Birleştir"
+	}
+	ui.PrintInfo(fmt.Sprintf(
+		"Plan: mod=%s, codec=%s, kalite=%d, metadata=%s, on-conflict=%s",
+		modeLabel,
+		strings.ToUpper(plan.Codec),
+		plan.Quality,
+		plan.MetadataMode,
+		plan.ConflictPolicy,
+	))
+	if plan.WouldSkip {
+		ui.PrintWarning("Bu işlem on-conflict=skip nedeniyle atlanacak.")
+	}
+
+	if plan.HasSourceDuration {
+		ui.PrintInfo(fmt.Sprintf("Kaynak süre: %s", formatTrimSecondsHuman(plan.SourceDurationSec)))
+	} else {
+		ui.PrintWarning("Kaynak süre okunamadı (ffprobe yok/hata). Bazı süre tahminleri sınırlı olabilir.")
+	}
+
+	if plan.Mode == trimModeClip {
+		endLabel := "dosya sonu"
+		if plan.ClipHasEnd {
+			endLabel = formatTrimSecondsHuman(plan.ClipEndSec)
+		}
+		ui.PrintInfo(fmt.Sprintf("Klip aralığı: %s -> %s", formatTrimSecondsHuman(plan.ClipStartSec), endLabel))
+		if plan.ClipHasEnd {
+			ui.PrintInfo(fmt.Sprintf("Tahmini klip süresi: %s", formatTrimSecondsHuman(plan.ClipEndSec-plan.ClipStartSec)))
+		}
+		ui.PrintInfo("İşlemi uygulamak için --dry-run/--preview flag'ini kaldırın.")
+		return
+	}
+
+	ui.PrintInfo(fmt.Sprintf("Silinecek aralık sayısı: %d", len(plan.RemoveRanges)))
+	for i, r := range plan.RemoveRanges {
+		ui.PrintInfo(fmt.Sprintf(
+			"  Sil[%d]: %s -> %s (%s)",
+			i+1,
+			formatTrimSecondsHuman(r.Start),
+			formatTrimSecondsHuman(r.End),
+			formatTrimSecondsHuman(r.End-r.Start),
+		))
+	}
+
+	ui.PrintInfo(fmt.Sprintf("Korunacak segment sayısı: %d", len(plan.KeepSegments)))
+	for i, s := range plan.KeepSegments {
+		endLabel := "dosya sonu"
+		lengthLabel := "bilinmiyor"
+		if s.HasEnd {
+			endLabel = formatTrimSecondsHuman(s.End)
+			lengthLabel = formatTrimSecondsHuman(s.End - s.Start)
+		}
+		ui.PrintInfo(fmt.Sprintf(
+			"  Keep[%d]: %s -> %s (uzunluk: %s)",
+			i+1,
+			formatTrimSecondsHuman(s.Start),
+			endLabel,
+			lengthLabel,
+		))
+	}
+
+	removed := sumTrimRangesLength(plan.RemoveRanges)
+	ui.PrintInfo(fmt.Sprintf("Toplam silinecek süre: %s", formatTrimSecondsHuman(removed)))
+
+	if kept, known := sumKeepSegmentsLength(plan.KeepSegments); known {
+		ui.PrintInfo(fmt.Sprintf("Tahmini çıktı süresi: %s", formatTrimSecondsHuman(kept)))
+	}
+	ui.PrintInfo("İşlemi uygulamak için --dry-run/--preview flag'ini kaldırın.")
+}
+
+func sumTrimRangesLength(ranges []trimRange) float64 {
+	total := 0.0
+	for _, r := range ranges {
+		if r.End > r.Start {
+			total += r.End - r.Start
+		}
+	}
+	return total
+}
+
+func sumKeepSegmentsLength(segments []keepSegment) (float64, bool) {
+	total := 0.0
+	for _, segment := range segments {
+		if !segment.HasEnd {
+			return total, false
+		}
+		if segment.End > segment.Start {
+			total += segment.End - segment.Start
+		}
+	}
+	return total, true
+}
+
+func formatTrimSecondsHuman(value float64) string {
+	if value < 0 {
+		value = 0
+	}
+	millis := int64(value*1000 + 0.5)
+	hours := millis / 3600000
+	minutes := (millis % 3600000) / 60000
+	seconds := (millis % 60000) / 1000
+	ms := millis % 1000
+
+	if ms == 0 {
+		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, ms)
 }
 
 func runTrimRemoveRangesFFmpeg(input string, output string, ranges []trimRange, codec string, quality int, metadataMode string, verbose bool) error {
