@@ -1,6 +1,12 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/mlihgenel/fileconverter-cli/internal/converter"
+)
 
 func TestNormalizeVideoTrimTime(t *testing.T) {
 	got, err := normalizeVideoTrimTime("5,5", false)
@@ -143,5 +149,60 @@ func TestTimelineStepHelpers(t *testing.T) {
 	}
 	if got := decreaseTimelineStep(1); got != 0.5 {
 		t.Fatalf("expected decrease from 1 to 0.5, got %.1f", got)
+	}
+}
+
+func TestResolveVideoTrimOutputPreview(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "sample.mp4")
+	if err := os.WriteFile(inputPath, []byte("dummy"), 0644); err != nil {
+		t.Fatalf("failed to create input file: %v", err)
+	}
+
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = inputPath
+	m.defaultOutput = tmpDir
+	m.trimMode = trimModeClip
+	m.defaultOnConflict = converter.ConflictVersioned
+
+	preview, err := m.resolveVideoTrimOutputPreview(m.trimMode)
+	if err != nil {
+		t.Fatalf("unexpected preview error: %v", err)
+	}
+	if preview.TargetFormat != "mp4" {
+		t.Fatalf("expected target format mp4, got %s", preview.TargetFormat)
+	}
+	if preview.Skip {
+		t.Fatalf("expected skip=false for non-conflicting output")
+	}
+}
+
+func TestResolveVideoTrimOutputPreviewSkip(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "sample.mp4")
+	if err := os.WriteFile(inputPath, []byte("dummy"), 0644); err != nil {
+		t.Fatalf("failed to create input file: %v", err)
+	}
+	// Expected base output for clip mode.
+	baseOutput := filepath.Join(tmpDir, "sample_trim.mp4")
+	if err := os.WriteFile(baseOutput, []byte("exists"), 0644); err != nil {
+		t.Fatalf("failed to create existing output file: %v", err)
+	}
+
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = inputPath
+	m.defaultOutput = tmpDir
+	m.trimMode = trimModeClip
+	m.defaultOnConflict = converter.ConflictSkip
+
+	preview, err := m.resolveVideoTrimOutputPreview(m.trimMode)
+	if err != nil {
+		t.Fatalf("unexpected preview error: %v", err)
+	}
+	if !preview.Skip {
+		t.Fatalf("expected skip=true for existing output with conflict skip")
+	}
+	if preview.ResolvedOutput != baseOutput {
+		t.Fatalf("unexpected resolved output path: %s", preview.ResolvedOutput)
 	}
 }

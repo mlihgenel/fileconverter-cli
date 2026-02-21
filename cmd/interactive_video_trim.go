@@ -87,6 +87,64 @@ type videoTrimExecution struct {
 	Plan          videoTrimPlan
 }
 
+type videoTrimOutputPreview struct {
+	TargetFormat   string
+	BaseOutput     string
+	ResolvedOutput string
+	ConflictPolicy string
+	Skip           bool
+}
+
+func (m interactiveModel) resolveVideoTrimOutputPreview(mode string) (videoTrimOutputPreview, error) {
+	preview := videoTrimOutputPreview{}
+	inputFile := strings.TrimSpace(m.selectedFile)
+	if inputFile == "" {
+		return preview, fmt.Errorf("trim için video seçilmedi")
+	}
+	mode = normalizeTrimMode(mode)
+	if mode == "" {
+		mode = trimModeClip
+	}
+
+	targetFormat := converter.NormalizeFormat(m.targetFormat)
+	if targetFormat == "" {
+		targetFormat = converter.DetectFormat(inputFile)
+	}
+	if targetFormat == "" {
+		return preview, fmt.Errorf("hedef format belirlenemedi")
+	}
+
+	outputBaseDir := strings.TrimSpace(m.defaultOutput)
+	if outputBaseDir == "" {
+		outputBaseDir = filepath.Dir(inputFile)
+	}
+
+	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
+	suffix := "_trim"
+	if mode == trimModeRemove {
+		suffix = "_cut"
+	}
+	baseOutput := filepath.Join(outputBaseDir, fmt.Sprintf("%s%s.%s", baseName, suffix, targetFormat))
+
+	conflictMode := converter.NormalizeConflictPolicy(m.defaultOnConflict)
+	if conflictMode == "" {
+		conflictMode = converter.ConflictVersioned
+	}
+	resolvedOutput, skip, err := converter.ResolveOutputPathConflict(baseOutput, conflictMode)
+	if err != nil {
+		return preview, err
+	}
+
+	preview = videoTrimOutputPreview{
+		TargetFormat:   targetFormat,
+		BaseOutput:     baseOutput,
+		ResolvedOutput: resolvedOutput,
+		ConflictPolicy: conflictMode,
+		Skip:           skip,
+	}
+	return preview, nil
+}
+
 func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) {
 	execPlan := videoTrimExecution{}
 	inputFile := strings.TrimSpace(m.selectedFile)
@@ -129,43 +187,18 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 	if err != nil {
 		return execPlan, err
 	}
-
-	format := converter.NormalizeFormat(m.targetFormat)
-	if format == "" {
-		format = converter.DetectFormat(inputFile)
-	}
-	if format == "" {
-		return execPlan, fmt.Errorf("hedef format belirlenemedi")
-	}
-	effectiveCodec, codecNote, err := resolveEffectiveTrimCodec(inputFile, format, requestedCodec)
+	outputPreview, err := m.resolveVideoTrimOutputPreview(mode)
 	if err != nil {
 		return execPlan, err
 	}
-
-	outputBaseDir := strings.TrimSpace(m.defaultOutput)
-	if outputBaseDir == "" {
-		outputBaseDir = filepath.Dir(inputFile)
-	}
-
-	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
-	suffix := "_trim"
-	if mode == trimModeRemove {
-		suffix = "_cut"
-	}
-	outputPath := filepath.Join(outputBaseDir, fmt.Sprintf("%s%s.%s", baseName, suffix, format))
-
-	conflictMode := converter.NormalizeConflictPolicy(m.defaultOnConflict)
-	if conflictMode == "" {
-		conflictMode = converter.ConflictVersioned
-	}
-	resolvedOutput, skip, err := converter.ResolveOutputPathConflict(outputPath, conflictMode)
+	effectiveCodec, codecNote, err := resolveEffectiveTrimCodec(inputFile, outputPreview.TargetFormat, requestedCodec)
 	if err != nil {
 		return execPlan, err
 	}
 
 	plan, err := buildVideoTrimPlan(
 		inputFile,
-		resolvedOutput,
+		outputPreview.ResolvedOutput,
 		mode,
 		startValue,
 		endValue,
@@ -174,8 +207,8 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 		effectiveCodec,
 		m.defaultQuality,
 		converter.MetadataAuto,
-		conflictMode,
-		skip,
+		outputPreview.ConflictPolicy,
+		outputPreview.Skip,
 		codecNote,
 	)
 	if err != nil {
@@ -184,16 +217,16 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 
 	execPlan = videoTrimExecution{
 		Input:         inputFile,
-		Output:        resolvedOutput,
+		Output:        outputPreview.ResolvedOutput,
 		Mode:          mode,
 		Codec:         effectiveCodec,
 		CodecNote:     codecNote,
 		Quality:       m.defaultQuality,
-		TargetFormat:  format,
+		TargetFormat:  outputPreview.TargetFormat,
 		StartValue:    startValue,
 		EndValue:      endValue,
 		DurationValue: durationValue,
-		Skip:          skip,
+		Skip:          outputPreview.Skip,
 		Plan:          plan,
 	}
 	return execPlan, nil
@@ -493,6 +526,23 @@ func (m interactiveModel) viewVideoTrimTimeline() string {
 		b.WriteString(infoStyle.Render(fmt.Sprintf("  Dosya: %s", filepath.Base(m.selectedFile))))
 		b.WriteString("\n")
 	}
+	if outputPreview, err := m.resolveVideoTrimOutputPreview(m.trimMode); err != nil {
+		b.WriteString(errorStyle.Render("  Çıktı önizleme hatası: " + err.Error()))
+		b.WriteString("\n")
+	} else {
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  Çıktı (önizleme): %s", shortenPath(outputPreview.ResolvedOutput))))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Çakışma Politikası: %s", outputPreview.ConflictPolicy)))
+		b.WriteString("\n")
+		if outputPreview.Skip {
+			b.WriteString(errorStyle.Render("  Not: mevcut dosya nedeniyle işlem atlanacak (on-conflict=skip)."))
+			b.WriteString("\n")
+		} else if outputPreview.ResolvedOutput != outputPreview.BaseOutput {
+			b.WriteString(dimStyle.Render("  Not: çakışma nedeniyle versioned çıktı yolu kullanılacak."))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
 
 	totalLabel := "bilinmiyor"
 	if m.trimTimelineKnown {
