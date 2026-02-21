@@ -294,6 +294,8 @@ type interactiveModel struct {
 	trimTimelineMax   float64
 	trimTimelineStep  float64
 	trimTimelineKnown bool
+	trimSegments      []trimRange
+	trimActiveSegment int
 	trimValidationErr string
 	trimPreviewPlan   *videoTrimPlan
 }
@@ -737,6 +739,33 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "]":
 				m.trimTimelineStep = increaseTimelineStep(m.trimTimelineStep)
+				return m, nil
+			case "a":
+				if err := m.addRemoveTimelineSegment(); err != nil {
+					m.trimValidationErr = err.Error()
+				} else {
+					m.trimValidationErr = ""
+				}
+				return m, nil
+			case "n":
+				m.selectNextRemoveSegment()
+				return m, nil
+			case "p":
+				m.selectPrevRemoveSegment()
+				return m, nil
+			case "d":
+				if err := m.deleteActiveRemoveSegment(); err != nil {
+					m.trimValidationErr = err.Error()
+				} else {
+					m.trimValidationErr = ""
+				}
+				return m, nil
+			case "m":
+				if err := m.mergeRemoveTimelineSegments(); err != nil {
+					m.trimValidationErr = err.Error()
+				} else {
+					m.trimValidationErr = ""
+				}
 				return m, nil
 			default:
 				return m, nil
@@ -1498,6 +1527,8 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 					m.trimMode = trimModeClip
 					m.trimCodec = "auto"
 					m.trimCodecNote = ""
+					m.trimSegments = nil
+					m.trimActiveSegment = 0
 					m.trimValidationErr = ""
 					m.trimPreviewPlan = nil
 					m.state = stateVideoTrimMode
@@ -1621,6 +1652,8 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 			m.trimMode = trimModeClip
 		}
 		m.trimCodecNote = ""
+		m.trimSegments = nil
+		m.trimActiveSegment = 0
 		m.trimValidationErr = ""
 		m.state = stateVideoTrimStart
 		m.cursor = 0
@@ -1881,6 +1914,8 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimSegments = nil
+	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.choices = []string{
@@ -2033,6 +2068,8 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimSegments = nil
+	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.cursor = 0

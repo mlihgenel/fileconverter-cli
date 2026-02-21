@@ -152,6 +152,87 @@ func TestTimelineStepHelpers(t *testing.T) {
 	}
 }
 
+func TestRemoveRangesForExecutionFromSegments(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.trimMode = trimModeRemove
+	m.trimSegments = []trimRange{
+		{Start: 5, End: 8},
+		{Start: 7.5, End: 10},
+		{Start: 20, End: 22},
+	}
+
+	ranges, err := m.removeRangesForExecution()
+	if err != nil {
+		t.Fatalf("unexpected remove ranges error: %v", err)
+	}
+	if len(ranges) != 2 {
+		t.Fatalf("expected merged ranges length 2, got %d", len(ranges))
+	}
+	if ranges[0].Start != 5 || ranges[0].End != 10 {
+		t.Fatalf("unexpected first merged range: %+v", ranges[0])
+	}
+}
+
+func TestRemoveTimelineSegmentLifecycle(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.trimMode = trimModeRemove
+	m.trimSegments = []trimRange{{Start: 5, End: 8}}
+	m.trimActiveSegment = 0
+	m.trimTimelineStart = 5
+	m.trimTimelineEnd = 8
+	m.trimTimelineStep = 1
+	m.trimTimelineKnown = true
+	m.trimTimelineMax = 30
+
+	if err := m.addRemoveTimelineSegment(); err != nil {
+		t.Fatalf("unexpected add segment error: %v", err)
+	}
+	if len(m.trimSegments) != 2 {
+		t.Fatalf("expected 2 segments after add, got %d", len(m.trimSegments))
+	}
+	if m.trimActiveSegment != 1 {
+		t.Fatalf("expected active segment index 1, got %d", m.trimActiveSegment)
+	}
+
+	m.selectPrevRemoveSegment()
+	if m.trimActiveSegment != 0 {
+		t.Fatalf("expected active segment index 0 after prev, got %d", m.trimActiveSegment)
+	}
+
+	if err := m.deleteActiveRemoveSegment(); err != nil {
+		t.Fatalf("unexpected delete segment error: %v", err)
+	}
+	if len(m.trimSegments) != 1 {
+		t.Fatalf("expected 1 segment after delete, got %d", len(m.trimSegments))
+	}
+}
+
+func TestBuildVideoTrimExecutionRemoveWithMultiSegments(t *testing.T) {
+	m := newInteractiveModel(nil, false)
+	m.selectedFile = "/tmp/sample.mp4"
+	m.trimMode = trimModeRemove
+	m.trimRangeType = trimRangeEnd
+	m.trimStartInput = "5"
+	m.trimEndInput = "8"
+	m.trimSegments = []trimRange{
+		{Start: 5, End: 8},
+		{Start: 20, End: 25},
+	}
+	m.trimCodec = "copy"
+	m.defaultOutput = "/tmp"
+
+	execution, err := m.buildVideoTrimExecution()
+	if err != nil {
+		t.Fatalf("unexpected execution build error: %v", err)
+	}
+	if len(execution.RemoveRanges) != 2 {
+		t.Fatalf("expected 2 remove ranges, got %d", len(execution.RemoveRanges))
+	}
+	if len(execution.Plan.RemoveRanges) != 2 {
+		t.Fatalf("expected plan to include 2 remove ranges, got %d", len(execution.Plan.RemoveRanges))
+	}
+}
+
 func TestResolveVideoTrimOutputPreview(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "sample.mp4")

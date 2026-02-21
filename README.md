@@ -45,7 +45,7 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Video düzenleme (`video trim`): `clip` modunda aralık çıkarır, `remove` modunda aralığı silip kalan parçaları birleştirir.
 - Video trim preview/plan: CLI’de `--dry-run/--preview`; TUI’de çalıştırmadan önce plan onayı ekranı.
 - Video trim codec stratejisi: `--codec auto` (varsayılan) hedef formata göre uyumlu codec seçer.
-- TUI video trim timeline adımı: başlangıç/bitiş aralığını klavye ile hızlı kaydırma (`←/→`, `Tab`, `[`/`]`).
+- TUI video trim timeline adımı: başlangıç/bitiş aralığını klavye ile hızlı kaydırma ve remove modunda çoklu segment yönetimi (`a/n/p/d/m`).
 - Görsel/video boyutlandırma: manuel (`px`/`cm`) veya hazır preset (`story`, `square`, `fullhd` vb.).
 - Oranı koruyarak dikey/yatay uyarlama (`pad`, `fit`, `fill`, `stretch`); `pad` modunda siyah boşluk desteği.
 - Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Düzenle (Klip/Sil)`, `Boyutlandır`, `Toplu Boyutlandır`.

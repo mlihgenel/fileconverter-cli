@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,8 @@ func (m interactiveModel) goToVideoTrimBrowser() interactiveModel {
 	m.trimTimelineMax = 0
 	m.trimTimelineStep = 1
 	m.trimTimelineKnown = false
+	m.trimSegments = nil
+	m.trimActiveSegment = 0
 	m.trimValidationErr = ""
 	m.trimPreviewPlan = nil
 	m.state = stateFileBrowser
@@ -83,6 +86,7 @@ type videoTrimExecution struct {
 	StartValue    string
 	EndValue      string
 	DurationValue string
+	RemoveRanges  []trimRange
 	Skip          bool
 	Plan          videoTrimPlan
 }
@@ -145,6 +149,27 @@ func (m interactiveModel) resolveVideoTrimOutputPreview(mode string) (videoTrimO
 	return preview, nil
 }
 
+func (m interactiveModel) removeRangesForExecution() ([]trimRange, error) {
+	if normalizeTrimMode(m.trimMode) != trimModeRemove {
+		return nil, nil
+	}
+
+	if len(m.trimSegments) > 0 {
+		ranges := make([]trimRange, 0, len(m.trimSegments))
+		for _, r := range m.trimSegments {
+			if r.End > r.Start+minTimelineGapSec {
+				ranges = append(ranges, r)
+			}
+		}
+		if len(ranges) == 0 {
+			return nil, fmt.Errorf("remove işlemi için en az bir geçerli aralık gerekli")
+		}
+		return mergeTrimRanges(ranges), nil
+	}
+
+	return resolveRemoveRanges(m.trimStartInput, m.trimEndInput, m.trimDurationInput, nil)
+}
+
 func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) {
 	execPlan := videoTrimExecution{}
 	inputFile := strings.TrimSpace(m.selectedFile)
@@ -187,6 +212,10 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 	if err != nil {
 		return execPlan, err
 	}
+	removeRanges, err := m.removeRangesForExecution()
+	if err != nil {
+		return execPlan, err
+	}
 	outputPreview, err := m.resolveVideoTrimOutputPreview(mode)
 	if err != nil {
 		return execPlan, err
@@ -203,7 +232,7 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 		startValue,
 		endValue,
 		durationValue,
-		nil,
+		removeRanges,
 		effectiveCodec,
 		m.defaultQuality,
 		converter.MetadataAuto,
@@ -226,6 +255,7 @@ func (m interactiveModel) buildVideoTrimExecution() (videoTrimExecution, error) 
 		StartValue:    startValue,
 		EndValue:      endValue,
 		DurationValue: durationValue,
+		RemoveRanges:  removeRanges,
 		Skip:          outputPreview.Skip,
 		Plan:          plan,
 	}
@@ -252,18 +282,31 @@ func (m interactiveModel) doVideoTrim() tea.Cmd {
 		}
 
 		if execution.Mode == trimModeRemove {
-			err = runTrimRemoveFFmpeg(
-				execution.Input,
-				execution.Output,
-				execution.StartValue,
-				execution.EndValue,
-				execution.DurationValue,
-				execution.TargetFormat,
-				execution.Codec,
-				execution.Quality,
-				converter.MetadataAuto,
-				false,
-			)
+			if len(execution.RemoveRanges) > 0 {
+				err = runTrimRemoveRangesFFmpeg(
+					execution.Input,
+					execution.Output,
+					execution.RemoveRanges,
+					execution.TargetFormat,
+					execution.Codec,
+					execution.Quality,
+					converter.MetadataAuto,
+					false,
+				)
+			} else {
+				err = runTrimRemoveFFmpeg(
+					execution.Input,
+					execution.Output,
+					execution.StartValue,
+					execution.EndValue,
+					execution.DurationValue,
+					execution.TargetFormat,
+					execution.Codec,
+					execution.Quality,
+					converter.MetadataAuto,
+					false,
+				)
+			}
 		} else {
 			err = runTrimFFmpeg(
 				execution.Input,
@@ -388,8 +431,21 @@ func (m *interactiveModel) prepareVideoTrimTimeline() error {
 	}
 
 	m.trimTimelineKnown = known
-	m.trimTimelineStart = startSec
-	m.trimTimelineEnd = endSec
+	if m.trimMode == trimModeRemove {
+		if err := m.ensureRemoveTimelineSegments(startSec, endSec); err != nil {
+			return err
+		}
+		if len(m.trimSegments) == 0 {
+			return fmt.Errorf("remove işlemi için en az bir aralık gerekli")
+		}
+		if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+			m.trimActiveSegment = 0
+		}
+		m.syncTimelineFromActiveRemoveSegment()
+	} else {
+		m.trimTimelineStart = startSec
+		m.trimTimelineEnd = endSec
+	}
 	if m.trimTimelineStep <= 0 {
 		m.trimTimelineStep = 1
 	}
@@ -399,6 +455,12 @@ func (m *interactiveModel) prepareVideoTrimTimeline() error {
 
 func (m *interactiveModel) adjustVideoTrimTimeline(delta float64) {
 	if delta == 0 {
+		return
+	}
+
+	if m.trimMode == trimModeRemove && len(m.trimSegments) > 0 {
+		m.adjustActiveRemoveTimelineSegment(delta)
+		m.syncVideoTrimTimelineInputs()
 		return
 	}
 
@@ -435,6 +497,246 @@ func (m *interactiveModel) adjustVideoTrimTimeline(delta float64) {
 	}
 
 	m.syncVideoTrimTimelineInputs()
+}
+
+func (m *interactiveModel) ensureRemoveTimelineSegments(startSec float64, endSec float64) error {
+	if len(m.trimSegments) == 0 {
+		m.trimSegments = []trimRange{{Start: startSec, End: endSec}}
+		m.trimActiveSegment = 0
+	}
+
+	ranges := make([]trimRange, 0, len(m.trimSegments))
+	for _, r := range m.trimSegments {
+		if r.End > r.Start+minTimelineGapSec {
+			ranges = append(ranges, r)
+		}
+	}
+	if len(ranges) == 0 {
+		return fmt.Errorf("remove işlemi için geçerli segment yok")
+	}
+	sort.Slice(ranges, func(i, j int) bool {
+		return ranges[i].Start < ranges[j].Start
+	})
+	if m.trimTimelineKnown {
+		clamped, err := clampTrimRangesToDuration(ranges, m.trimTimelineMax)
+		if err == nil && len(clamped) > 0 {
+			ranges = clamped
+		}
+	}
+	m.trimSegments = ranges
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	return nil
+}
+
+func (m *interactiveModel) syncTimelineFromActiveRemoveSegment() {
+	if len(m.trimSegments) == 0 {
+		return
+	}
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	active := m.trimSegments[m.trimActiveSegment]
+	m.trimTimelineStart = active.Start
+	m.trimTimelineEnd = active.End
+}
+
+func (m *interactiveModel) adjustActiveRemoveTimelineSegment(delta float64) {
+	if len(m.trimSegments) == 0 {
+		return
+	}
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	m.syncTimelineFromActiveRemoveSegment()
+
+	active := m.trimSegments[m.trimActiveSegment]
+	prevEnd := 0.0
+	if m.trimActiveSegment > 0 {
+		prevEnd = m.trimSegments[m.trimActiveSegment-1].End
+	}
+	nextStart := 0.0
+	hasNext := false
+	if m.trimActiveSegment+1 < len(m.trimSegments) {
+		nextStart = m.trimSegments[m.trimActiveSegment+1].Start
+		hasNext = true
+	}
+
+	if m.cursor == 0 {
+		next := active.Start + delta
+		minStart := 0.0
+		if prevEnd > 0 {
+			minStart = prevEnd + minTimelineGapSec
+		}
+		maxStart := active.End - minTimelineGapSec
+		if next < minStart {
+			next = minStart
+		}
+		if next > maxStart {
+			next = maxStart
+		}
+		active.Start = next
+	} else {
+		next := active.End + delta
+		minEnd := active.Start + minTimelineGapSec
+		maxEnd := next
+		if hasNext {
+			maxEnd = nextStart - minTimelineGapSec
+		} else if m.trimTimelineKnown {
+			maxEnd = m.trimTimelineMax
+		}
+		if maxEnd < minEnd {
+			maxEnd = minEnd
+		}
+		if next < minEnd {
+			next = minEnd
+		}
+		if next > maxEnd {
+			next = maxEnd
+		}
+		active.End = next
+	}
+
+	m.trimSegments[m.trimActiveSegment] = active
+	m.trimTimelineStart = active.Start
+	m.trimTimelineEnd = active.End
+}
+
+func (m *interactiveModel) addRemoveTimelineSegment() error {
+	if m.trimMode != trimModeRemove {
+		return fmt.Errorf("çoklu segment yalnızca remove modunda kullanılabilir")
+	}
+	if len(m.trimSegments) == 0 {
+		if err := m.ensureRemoveTimelineSegments(m.trimTimelineStart, m.trimTimelineEnd); err != nil {
+			return err
+		}
+	}
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+
+	base := m.trimSegments[m.trimActiveSegment]
+	start := base.End + minTimelineGapSec
+	end := start + maxFloat(1, m.trimTimelineStep*4)
+
+	if m.trimActiveSegment+1 < len(m.trimSegments) {
+		nextStart := m.trimSegments[m.trimActiveSegment+1].Start - minTimelineGapSec
+		if start >= nextStart {
+			return fmt.Errorf("yeni segment için boş alan yok")
+		}
+		if end > nextStart {
+			end = nextStart
+		}
+	}
+	if m.trimTimelineKnown && end > m.trimTimelineMax {
+		end = m.trimTimelineMax
+	}
+	if end-start <= minTimelineGapSec {
+		return fmt.Errorf("yeni segment için yeterli alan yok")
+	}
+
+	insertAt := m.trimActiveSegment + 1
+	m.trimSegments = append(m.trimSegments, trimRange{})
+	copy(m.trimSegments[insertAt+1:], m.trimSegments[insertAt:])
+	m.trimSegments[insertAt] = trimRange{Start: start, End: end}
+	m.trimActiveSegment = insertAt
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+	return nil
+}
+
+func (m *interactiveModel) selectNextRemoveSegment() {
+	if m.trimMode != trimModeRemove || len(m.trimSegments) == 0 {
+		return
+	}
+	m.trimActiveSegment++
+	if m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+}
+
+func (m *interactiveModel) selectPrevRemoveSegment() {
+	if m.trimMode != trimModeRemove || len(m.trimSegments) == 0 {
+		return
+	}
+	m.trimActiveSegment--
+	if m.trimActiveSegment < 0 {
+		m.trimActiveSegment = len(m.trimSegments) - 1
+	}
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+}
+
+func (m *interactiveModel) deleteActiveRemoveSegment() error {
+	if m.trimMode != trimModeRemove {
+		return fmt.Errorf("çoklu segment yalnızca remove modunda kullanılabilir")
+	}
+	if len(m.trimSegments) <= 1 {
+		return fmt.Errorf("en az bir segment kalmalı")
+	}
+	if m.trimActiveSegment < 0 || m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = 0
+	}
+	idx := m.trimActiveSegment
+	m.trimSegments = append(m.trimSegments[:idx], m.trimSegments[idx+1:]...)
+	if m.trimActiveSegment >= len(m.trimSegments) {
+		m.trimActiveSegment = len(m.trimSegments) - 1
+	}
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+	return nil
+}
+
+func (m *interactiveModel) mergeRemoveTimelineSegments() error {
+	if m.trimMode != trimModeRemove {
+		return fmt.Errorf("çoklu segment yalnızca remove modunda kullanılabilir")
+	}
+	if len(m.trimSegments) == 0 {
+		return fmt.Errorf("birleştirilecek segment yok")
+	}
+	activeStart := m.trimSegments[m.trimActiveSegment].Start
+	merged := mergeTrimRanges(m.trimSegments)
+	if len(merged) == 0 {
+		return fmt.Errorf("birleştirilecek geçerli segment yok")
+	}
+	m.trimSegments = merged
+	m.trimActiveSegment = nearestSegmentIndex(activeStart, merged)
+	m.syncTimelineFromActiveRemoveSegment()
+	m.syncVideoTrimTimelineInputs()
+	return nil
+}
+
+func nearestSegmentIndex(anchor float64, segments []trimRange) int {
+	if len(segments) == 0 {
+		return 0
+	}
+	bestIdx := 0
+	bestDist := absFloat(segments[0].Start - anchor)
+	for i := 1; i < len(segments); i++ {
+		dist := absFloat(segments[i].Start - anchor)
+		if dist < bestDist {
+			bestDist = dist
+			bestIdx = i
+		}
+	}
+	return bestIdx
+}
+
+func maxFloat(a float64, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (m *interactiveModel) syncVideoTrimTimelineInputs() {
@@ -590,6 +892,46 @@ func (m interactiveModel) viewVideoTrimTimeline() string {
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  Adım: %.1fs", m.trimTimelineStep)))
 	b.WriteString("\n")
 
+	if m.trimMode == trimModeRemove {
+		b.WriteString("\n")
+		segmentCount := len(m.trimSegments)
+		activeLabel := "yok"
+		if segmentCount > 0 {
+			activeLabel = fmt.Sprintf("%d/%d", m.trimActiveSegment+1, segmentCount)
+		}
+		b.WriteString(infoStyle.Render(fmt.Sprintf("  Silinecek Segmentler: %d  •  Aktif: %s", segmentCount, activeLabel)))
+		b.WriteString("\n")
+		visible := segmentCount
+		if visible > 6 {
+			visible = 6
+		}
+		for i := 0; i < visible; i++ {
+			r := m.trimSegments[i]
+			prefix := "   "
+			if i == m.trimActiveSegment {
+				prefix = " ▸ "
+			}
+			line := fmt.Sprintf(
+				"%s%d) %s -> %s (%s)",
+				prefix,
+				i+1,
+				formatTrimSecondsHuman(r.Start),
+				formatTrimSecondsHuman(r.End),
+				formatTrimSecondsHuman(r.End-r.Start),
+			)
+			if i == m.trimActiveSegment {
+				b.WriteString(infoStyle.Render(line))
+			} else {
+				b.WriteString(dimStyle.Render(line))
+			}
+			b.WriteString("\n")
+		}
+		if segmentCount > visible {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ... (%d segment daha)", segmentCount-visible)))
+			b.WriteString("\n")
+		}
+	}
+
 	if m.trimValidationErr != "" {
 		b.WriteString("\n")
 		b.WriteString(errorStyle.Render("  Hata: " + m.trimValidationErr))
@@ -599,6 +941,10 @@ func (m interactiveModel) viewVideoTrimTimeline() string {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render("  ←/→ Aralığı kaydır  •  ↑/↓ veya Tab odak değiştir (başlangıç/bitiş)"))
 	b.WriteString("\n")
+	if m.trimMode == trimModeRemove {
+		b.WriteString(dimStyle.Render("  a Yeni segment  •  n/p Segment gez  •  d Sil  •  m Birleştir"))
+		b.WriteString("\n")
+	}
 	b.WriteString(dimStyle.Render("  [ ] Adım azalt/artır  •  Enter Devam  •  Esc Geri"))
 	b.WriteString("\n")
 	return b.String()
