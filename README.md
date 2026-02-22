@@ -1,7 +1,7 @@
 # File Converter CLI
 
 <p align="center">
-  <img src="assets/fileconverter.gif" alt="File Converter CLI Arayüzü" width="800">
+  <img src="assets/fileconverter.gif" alt="File Converter CLI Arayüzü">
 </p> 
 
 
@@ -22,8 +22,10 @@
 - [Özellikler](#özellikler)
 - [Kurulum](#kurulum)
 - [Hızlı Başlangıç](#hızlı-başlangıç)
+- [Shell Completion](#shell-completion)
 - [Komut Referansı](#komut-referansı)
 - [Flag Referansı](#flag-referansı)
+- [Pipeline Spec (JSON)](#pipeline-spec-json)
 - [Desteklenen Formatlar](#desteklenen-formatlar)
 - [Harici Bağımlılıklar](#harici-bağımlılıklar)
 - [Yapılandırma](#yapılandırma)
@@ -121,6 +123,7 @@ fileconverter-cli help pipeline
 fileconverter-cli help video
 fileconverter-cli help formats
 fileconverter-cli help resize-presets
+fileconverter-cli help completion
 ```
 
 ### İnteraktif mod (TUI)
@@ -138,6 +141,20 @@ TUI açmadan doğrudan CLI ile çalışmak için:
 ```bash
 fileconverter-cli --help
 fileconverter-cli help <komut>
+```
+
+### Shell completion
+```bash
+# Zsh
+fileconverter-cli completion zsh > "${fpath[1]}/_fileconverter-cli"
+
+# Bash
+fileconverter-cli completion bash > /etc/bash_completion.d/fileconverter-cli
+```
+
+Detaylar ve diğer shell'ler için:
+```bash
+fileconverter-cli completion --help
 ```
 
 ### Format sorgulama
@@ -165,7 +182,7 @@ fileconverter-cli convert klip.mp4 --to gif --quality 80
 fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
 
 # Görseli manuel ölçüyle boyutlandır (cm)
-fileconverter-cli convert fotograf.jpg --to webp --width 12 --height 18 --unit cm --dpi 300
+fileconverter-cli convert fotograf.webp --to png --width 12 --height 18 --unit cm --dpi 300
 
 # Profil kullanımı (story çıktı için)
 fileconverter-cli convert klip.mp4 --to mp4 --profile social-story
@@ -183,7 +200,7 @@ fileconverter-cli batch ./docs --from md --to pdf
 fileconverter-cli batch ./videolar --from mp4 --to gif --recursive
 
 # Ön izleme (dönüştürmeden planı gösterir)
-fileconverter-cli batch ./resimler --from jpg --to webp --dry-run
+fileconverter-cli batch ./resimler --from jpg --to png --dry-run
 
 # Glob kullanımı
 fileconverter-cli batch "*.png" --from png --to jpg --quality 85
@@ -192,7 +209,7 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
 
 # Çakışma ve retry ile JSON rapor üret
-fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
+fileconverter-cli batch ./resimler --from jpg --to png --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
 
 # Profil + metadata modu ile batch
 fileconverter-cli batch ./videolar --from mp4 --to mp4 --profile social-story --strip-metadata
@@ -200,8 +217,8 @@ fileconverter-cli batch ./videolar --from mp4 --to mp4 --profile social-story --
 
 ### Watch modu (otomatik dönüşüm)
 ```bash
-# incoming klasörünü izle, yeni jpg dosyalarını webp yap
-fileconverter-cli watch ./incoming --from jpg --to webp
+# incoming klasörünü izle, yeni webp dosyalarını jpg yap
+fileconverter-cli watch ./incoming --from webp --to jpg
 
 # Alt dizinlerle birlikte izle
 fileconverter-cli watch ./videolar --from mp4 --to gif --recursive --quality 80
@@ -220,6 +237,22 @@ fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-me
 ```
 
 Örnek spec dosyası: `pipeline.example.json`
+
+### Pipeline Spec (JSON)
+
+| Alan | Zorunlu | Açıklama |
+|---|---|---|
+| `input` | Evet | Pipeline'ın başlangıç dosyası |
+| `output` | Hayır | Son adımın nihai çıktı yolu |
+| `steps[]` | Evet | Sıralı işlem adımları |
+| `steps[].type` | Evet | `convert` veya `audio-normalize` |
+| `steps[].to` | `convert` için evet | Hedef format (`mp3`, `wav`, `pdf` vb.) |
+| `steps[].quality` | Hayır | Adım bazlı kalite (1-100) |
+| `steps[].output` | Hayır | O adım için özel çıktı yolu |
+| `steps[].metadata_mode` | Hayır | `auto`, `preserve`, `strip` |
+| `steps[].target_lufs` | `audio-normalize` için hayır | Hedef LUFS |
+| `steps[].target_tp` | `audio-normalize` için hayır | Hedef true peak |
+| `steps[].target_lra` | `audio-normalize` için hayır | Hedef loudness range |
 
 ### Video düzenleme (trim)
 ```bash
@@ -246,7 +279,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `fileconverter-cli` | İnteraktif TUI modunu başlatır | `fileconverter-cli` |
 | `fileconverter-cli convert <dosya>` | Tek dosya dönüşümü | `fileconverter-cli convert input.mp4 --to gif` |
 | `fileconverter-cli batch <dizin/glob>` | Toplu dönüşüm | `fileconverter-cli batch ./src --from md --to html` |
-| `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from jpg --to webp` |
+| `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from webp --to jpg` |
 | `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
 | `fileconverter-cli video trim <dosya>` | `clip`: aralık çıkarır, `remove`: aralığı siler + birleştirir | `fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
@@ -263,6 +296,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--output` | `-o` | Çıktı dizini (varsayılan: kaynak dosya dizini) |
 | `--verbose` | `-v` | Detaylı çıktı |
 | `--workers` | `-w` | Batch modunda paralel worker sayısı |
+| `--version` | - | Sürüm bilgisini gösterir |
 
 ### `convert` flag'leri
 
@@ -387,7 +421,9 @@ fileconverter-cli formats
 - Ek: `csv -> xlsx`
 
 ### Görseller
-- `png`, `jpg/jpeg`, `webp`, `bmp`, `gif`, `tif/tiff`, `ico`
+- Kaynak: `png`, `jpg/jpeg`, `webp`, `bmp`, `gif`, `tif/tiff`, `ico`
+- Hedef: `png`, `jpg/jpeg`, `bmp`, `gif`, `tif/tiff`, `ico`
+- Not: `webp` şu an yalnızca kaynak (decode) olarak desteklenir.
 
 ### Ses (FFmpeg)
 - `mp3`, `wav`, `ogg`, `flac`, `aac`, `m4a`, `wma`, `opus`, `webm`

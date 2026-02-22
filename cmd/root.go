@@ -60,9 +60,9 @@ Kullanim:
   fileconverter-cli help <komut>     # Belirli komut yardimi
 
 Desteklenen kategoriler:
-  Belgeler:  MD, HTML, PDF, DOCX, TXT
-  Ses:       MP3, WAV, OGG, FLAC, AAC, M4A, WMA  (FFmpeg gerekir)
-  Gorseller: PNG, JPEG, WEBP, BMP, GIF, TIFF
+  Belgeler:  MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV (+ CSV -> XLSX)
+  Ses:       MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM  (FFmpeg gerekir)
+  Gorseller: PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO  (WEBP yalnizca kaynak)
   Videolar:  MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV, GIF  (FFmpeg gerekir)
 
 Örnekler:
@@ -73,9 +73,9 @@ Desteklenen kategoriler:
   fileconverter-cli convert klip.mp4 --to mp4 --profile social-story --strip-metadata
   fileconverter-cli convert klip.mp4 --to gif --quality 80
   fileconverter-cli batch ./belgeler --from md --to pdf
-  fileconverter-cli batch ./resimler --from jpg --to webp --profile archive-lossless --preserve-metadata
-  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json
-  fileconverter-cli watch ./incoming --from jpg --to webp
+  fileconverter-cli batch ./resimler --from webp --to jpg --profile archive-lossless --preserve-metadata
+  fileconverter-cli batch ./resimler --from jpg --to png --on-conflict versioned --retry 2 --report json
+  fileconverter-cli watch ./incoming --from webp --to jpg
   fileconverter-cli pipeline run ./pipeline.json --profile social-story
   fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
   fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2

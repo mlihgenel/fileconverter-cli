@@ -37,7 +37,7 @@ var watchCmd = &cobra.Command{
 otomatik dönüştürür.
 
 Örnekler:
-  fileconverter-cli watch ./incoming --from jpg --to webp
+  fileconverter-cli watch ./incoming --from webp --to jpg
   fileconverter-cli watch ./videos --from mp4 --to gif --recursive --quality 80
   fileconverter-cli watch ./inbox --from png --to jpg --on-conflict versioned
   fileconverter-cli watch ./incoming --from mov --to mp4 --profile archive-lossless --preserve-metadata`,

@@ -41,7 +41,7 @@ var convertCmd = &cobra.Command{
   fileconverter-cli convert dosya.pdf --to txt --name cikti_adi
   fileconverter-cli convert foto.jpg --to png --preset square --resize-mode pad
   fileconverter-cli convert klip.mp4 --to mp4 --preset story --resize-mode pad
-  fileconverter-cli convert foto.jpg --to webp --width 12 --height 18 --unit cm --dpi 300
+  fileconverter-cli convert foto.webp --to png --width 12 --height 18 --unit cm --dpi 300
   fileconverter-cli convert klip.mp4 --to mp4 --profile social-story
   fileconverter-cli convert klip.mov --to mp4 --strip-metadata`,
 	Args: cobra.ExactArgs(1),

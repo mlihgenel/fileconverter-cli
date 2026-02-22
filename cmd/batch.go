@@ -51,8 +51,8 @@ Worker pool kullanarak paralel dönüşüm yapar.
   fileconverter-cli batch ./resimler --from png --to jpg --dry-run
   fileconverter-cli batch ./belgeler --from md --to html --output ./cikti/
   fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
-  fileconverter-cli batch ./fotograflar --from jpg --to webp --width 10 --height 15 --unit cm --dpi 300
-  fileconverter-cli batch ./resimler --from jpg --to webp --on-conflict versioned --retry 2 --report json --report-file ./reports/batch.json
+  fileconverter-cli batch ./fotograflar --from webp --to png --width 10 --height 15 --unit cm --dpi 300
+  fileconverter-cli batch ./resimler --from jpg --to png --on-conflict versioned --retry 2 --report json --report-file ./reports/batch.json
   fileconverter-cli batch ./videolar --from mov --to mp4 --profile archive-lossless --preserve-metadata`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
