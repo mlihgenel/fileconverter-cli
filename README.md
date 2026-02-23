@@ -60,6 +60,7 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Hazır profil sistemi (`--profile`: `social-story`, `podcast-clean`, `archive-lossless`).
 - Metadata kontrolü (`--preserve-metadata`, `--strip-metadata`).
 - Klasör izleme ile otomatik dönüşüm (`watch` komutu, event-driven + polling fallback).
+- Makine-okunur CLI çıktısı (`--output-format json`).
 - Proje bazlı ayarlar: `.fileconverter.toml` (flag > env > project config > default).
 - Harici bağımlılık kontrolü (FFmpeg, LibreOffice, Pandoc).
 - Format alias desteği (`jpeg -> jpg`, `tiff -> tif`, `markdown -> md`).
@@ -163,6 +164,7 @@ fileconverter-cli completion --help
 fileconverter-cli formats
 fileconverter-cli formats --from mp4
 fileconverter-cli formats --to gif
+fileconverter-cli formats --output-format json
 ```
 
 ### Tek dosya dönüşümü
@@ -306,6 +308,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--output` | `-o` | Çıktı dizini (varsayılan: kaynak dosya dizini) |
 | `--verbose` | `-v` | Detaylı çıktı |
 | `--workers` | `-w` | Batch modunda paralel worker sayısı |
+| `--output-format` | - | CLI çıktı formatı: `text` veya `json` |
 | `--version` | - | Sürüm bilgisini gösterir |
 
 ### `convert` flag'leri
