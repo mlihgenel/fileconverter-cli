@@ -79,77 +79,88 @@ otomatik dönüştürür.
 			return fmt.Errorf("gecersiz on-conflict politikasi: %s", watchOnConflict)
 		}
 
-		w := convwatch.NewWatcher(sourceDir, fromFormat, watchRecursive, watchSettle)
+		w, watchBackendErr := convwatch.NewAdaptiveWatcher(sourceDir, fromFormat, watchRecursive, watchSettle)
+		if watchBackendErr != nil {
+			ui.PrintWarning(fmt.Sprintf("Event izleme devre dışı, polling fallback kullanılıyor: %s", watchBackendErr.Error()))
+		}
 		if err := w.Bootstrap(); err != nil {
 			return err
 		}
+		defer w.Close()
 
 		pool := batch.NewPool(workers)
 		pool.SetRetry(watchRetry, watchRetryDelay)
 
 		ui.PrintInfo(fmt.Sprintf("İzleme başladı: %s (.%s -> .%s)", sourceDir, converter.FormatFilterLabel(fromFormat), targetFormat))
+		ui.PrintInfo(fmt.Sprintf("İzleme modu: %s", w.Mode()))
 		ui.PrintInfo("Durdurmak için Ctrl+C kullanın.")
 
 		ticker := time.NewTicker(watchInterval)
 		defer ticker.Stop()
+		eventCh := w.Events()
 
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		defer signal.Stop(sigCh)
 
+		processTick := func() {
+			files, err := w.Poll(time.Now())
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("İzleme hatası: %s", err.Error()))
+				return
+			}
+			if len(files) == 0 {
+				return
+			}
+
+			jobs := make([]batch.Job, 0, len(files))
+			reserved := make(map[string]struct{}, len(files))
+			for _, f := range files {
+				baseOutput := converter.BuildOutputPath(f, outputDir, targetFormat, "")
+				resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, conflictPolicy, reserved)
+				if err != nil {
+					ui.PrintError(fmt.Sprintf("Çıktı yolu oluşturulamadı: %s", err.Error()))
+					continue
+				}
+				jobs = append(jobs, batch.Job{
+					InputPath:  f,
+					OutputPath: resolvedOutput,
+					From:       fromFormat,
+					To:         targetFormat,
+					SkipReason: skipReason,
+					Options: converter.Options{
+						Quality:      watchQuality,
+						Verbose:      verbose,
+						MetadataMode: metadataMode,
+					},
+				})
+			}
+
+			if len(jobs) == 0 {
+				return
+			}
+
+			startedAt := time.Now()
+			results := pool.Execute(jobs)
+			endedAt := time.Now()
+			summary := batch.GetSummary(results, endedAt.Sub(startedAt))
+			ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Skipped, summary.Failed, summary.Duration)
+
+			if len(summary.Errors) > 0 {
+				ui.PrintError("Başarısız dönüşümler:")
+				for _, e := range summary.Errors {
+					fmt.Printf("  %s %s: %s (deneme: %d)\n", ui.IconError, e.InputFile, e.Error, e.Attempts)
+				}
+				fmt.Println()
+			}
+		}
+
 		for {
 			select {
 			case <-ticker.C:
-				files, err := w.Poll(time.Now())
-				if err != nil {
-					ui.PrintError(fmt.Sprintf("İzleme hatası: %s", err.Error()))
-					continue
-				}
-				if len(files) == 0 {
-					continue
-				}
-
-				jobs := make([]batch.Job, 0, len(files))
-				reserved := make(map[string]struct{}, len(files))
-				for _, f := range files {
-					baseOutput := converter.BuildOutputPath(f, outputDir, targetFormat, "")
-					resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, conflictPolicy, reserved)
-					if err != nil {
-						ui.PrintError(fmt.Sprintf("Çıktı yolu oluşturulamadı: %s", err.Error()))
-						continue
-					}
-					jobs = append(jobs, batch.Job{
-						InputPath:  f,
-						OutputPath: resolvedOutput,
-						From:       fromFormat,
-						To:         targetFormat,
-						SkipReason: skipReason,
-						Options: converter.Options{
-							Quality:      watchQuality,
-							Verbose:      verbose,
-							MetadataMode: metadataMode,
-						},
-					})
-				}
-
-				if len(jobs) == 0 {
-					continue
-				}
-
-				startedAt := time.Now()
-				results := pool.Execute(jobs)
-				endedAt := time.Now()
-				summary := batch.GetSummary(results, endedAt.Sub(startedAt))
-				ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Skipped, summary.Failed, summary.Duration)
-
-				if len(summary.Errors) > 0 {
-					ui.PrintError("Başarısız dönüşümler:")
-					for _, e := range summary.Errors {
-						fmt.Printf("  %s %s: %s (deneme: %d)\n", ui.IconError, e.InputFile, e.Error, e.Attempts)
-					}
-					fmt.Println()
-				}
-
+				processTick()
+			case <-eventCh:
+				processTick()
 			case <-sigCh:
 				ui.PrintInfo("İzleme durduruldu.")
 				return nil

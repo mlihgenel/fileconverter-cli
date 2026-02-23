@@ -15,25 +15,26 @@ import (
 )
 
 var (
-	batchTo         string
-	batchFrom       string
-	batchProfile    string
-	batchRecursive  bool
-	batchDryRun     bool
-	batchQuality    int
-	batchOnConflict string
-	batchPreserveMD bool
-	batchStripMD    bool
-	batchRetry      int
-	batchRetryDelay time.Duration
-	batchReport     string
-	batchReportFile string
-	batchPreset     string
-	batchWidth      float64
-	batchHeight     float64
-	batchUnit       string
-	batchResizeDPI  float64
-	batchResizeMode string
+	batchTo           string
+	batchFrom         string
+	batchProfile      string
+	batchRecursive    bool
+	batchPreserveTree bool
+	batchDryRun       bool
+	batchQuality      int
+	batchOnConflict   string
+	batchPreserveMD   bool
+	batchStripMD      bool
+	batchRetry        int
+	batchRetryDelay   time.Duration
+	batchReport       string
+	batchReportFile   string
+	batchPreset       string
+	batchWidth        float64
+	batchHeight       float64
+	batchUnit         string
+	batchResizeDPI    float64
+	batchResizeMode   string
 )
 
 var batchCmd = &cobra.Command{
@@ -137,9 +138,11 @@ Worker pool kullanarak paralel dönüşüm yapar.
 
 		// Dosyaları topla
 		var files []string
+		sourceRoot := ""
 		info, statErr := os.Stat(source)
 		if statErr == nil && info.IsDir() {
 			// Dizin modu
+			sourceRoot = source
 			files, err = batch.CollectFiles(source, fromFormat, batchRecursive)
 			if err != nil {
 				ui.PrintError(fmt.Sprintf("Dizin taranamadı: %s", err.Error()))
@@ -188,7 +191,7 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		jobs := make([]batch.Job, 0, len(files))
 		reserved := make(map[string]struct{}, len(files))
 		for _, f := range files {
-			baseOutput := converter.BuildOutputPath(f, outputDir, targetFormat, "")
+			baseOutput := buildBatchOutputPath(f, sourceRoot, targetFormat)
 			resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, conflictPolicy, reserved)
 			if err != nil {
 				ui.PrintError(err.Error())
@@ -288,6 +291,7 @@ func init() {
 	batchCmd.Flags().StringVarP(&batchFrom, "from", "f", "", "Kaynak format (zorunlu)")
 	batchCmd.Flags().StringVar(&batchProfile, "profile", "", "Hazır profil (ör: social-story, podcast-clean, archive-lossless)")
 	batchCmd.Flags().BoolVarP(&batchRecursive, "recursive", "r", false, "Alt dizinleri de tara")
+	batchCmd.Flags().BoolVar(&batchPreserveTree, "preserve-tree", false, "Dizin modunda --output altına klasör yapısını koru")
 	batchCmd.Flags().BoolVar(&batchDryRun, "dry-run", false, "Ön izleme — dönüşüm yapmadan listele")
 	batchCmd.Flags().IntVarP(&batchQuality, "quality", "q", 0, "Kalite seviyesi (1-100)")
 	batchCmd.Flags().StringVar(&batchOnConflict, "on-conflict", converter.ConflictVersioned, "Çakışma politikası: overwrite, skip, versioned")
@@ -362,4 +366,26 @@ func writeBatchReport(path, content string) error {
 		}
 	}
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func buildBatchOutputPath(inputPath, sourceRoot, targetFormat string) string {
+	if !batchPreserveTree || strings.TrimSpace(outputDir) == "" || strings.TrimSpace(sourceRoot) == "" {
+		return converter.BuildOutputPath(inputPath, outputDir, targetFormat, "")
+	}
+
+	relPath, err := filepath.Rel(sourceRoot, inputPath)
+	if err != nil {
+		return converter.BuildOutputPath(inputPath, outputDir, targetFormat, "")
+	}
+	if strings.HasPrefix(relPath, "..") {
+		return converter.BuildOutputPath(inputPath, outputDir, targetFormat, "")
+	}
+
+	relDir := filepath.Dir(relPath)
+	baseName := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
+	outputName := baseName + "." + targetFormat
+	if relDir == "." {
+		return filepath.Join(outputDir, outputName)
+	}
+	return filepath.Join(outputDir, relDir, outputName)
 }

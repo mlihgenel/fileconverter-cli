@@ -16,6 +16,15 @@ type fileState struct {
 	Processed  bool
 }
 
+// Engine watch backendi için ortak arayüzdür.
+type Engine interface {
+	Bootstrap() error
+	Poll(now time.Time) ([]string, error)
+	Events() <-chan struct{}
+	Close() error
+	Mode() string
+}
+
 // Watcher polling tabanlı dosya izleyicisidir.
 type Watcher struct {
 	Root      string
@@ -133,3 +142,12 @@ func (w *Watcher) scan(onFile func(path string, info os.FileInfo) error) error {
 
 	return filepath.WalkDir(w.Root, walkFn)
 }
+
+// Events polling backend için event kanalı üretmez.
+func (w *Watcher) Events() <-chan struct{} { return nil }
+
+// Close polling backend için no-op'tur.
+func (w *Watcher) Close() error { return nil }
+
+// Mode backend tipini döner.
+func (w *Watcher) Mode() string { return "polling" }

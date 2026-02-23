@@ -69,3 +69,41 @@ func TestResolveBatchOutputPathOverwrite(t *testing.T) {
 		t.Fatalf("unexpected resolved path: %s", resolved)
 	}
 }
+
+func TestBuildBatchOutputPathPreserveTree(t *testing.T) {
+	prevOutput := outputDir
+	prevPreserve := batchPreserveTree
+	t.Cleanup(func() {
+		outputDir = prevOutput
+		batchPreserveTree = prevPreserve
+	})
+
+	outputDir = filepath.Join("target", "out")
+	batchPreserveTree = true
+
+	input := filepath.Join("src", "nested", "asset.jpg")
+	got := buildBatchOutputPath(input, filepath.Join("src"), "png")
+	want := filepath.Join("target", "out", "nested", "asset.png")
+	if got != want {
+		t.Fatalf("expected %s, got %s", want, got)
+	}
+}
+
+func TestBuildBatchOutputPathPreserveTreeFallback(t *testing.T) {
+	prevOutput := outputDir
+	prevPreserve := batchPreserveTree
+	t.Cleanup(func() {
+		outputDir = prevOutput
+		batchPreserveTree = prevPreserve
+	})
+
+	outputDir = filepath.Join("target", "out")
+	batchPreserveTree = true
+
+	input := filepath.Join("other", "asset.jpg")
+	got := buildBatchOutputPath(input, filepath.Join("src"), "png")
+	want := filepath.Join("target", "out", "asset.png")
+	if got != want {
+		t.Fatalf("expected fallback path %s, got %s", want, got)
+	}
+}

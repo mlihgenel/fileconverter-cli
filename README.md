@@ -54,11 +54,12 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - Batch dönüşüm (dizin veya glob pattern).
 - Paralel işleme (`--workers`) ile yüksek performans.
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
+- Çıktı dizinine yazarken klasör yapısını koruma (`batch --preserve-tree`).
 - Çakışma politikası (`--on-conflict`: `overwrite`, `skip`, `versioned`).
 - Otomatik retry (`--retry`, `--retry-delay`) ve raporlama (`--report`, `--report-file`).
 - Hazır profil sistemi (`--profile`: `social-story`, `podcast-clean`, `archive-lossless`).
 - Metadata kontrolü (`--preserve-metadata`, `--strip-metadata`).
-- Klasör izleme ile otomatik dönüşüm (`watch` komutu).
+- Klasör izleme ile otomatik dönüşüm (`watch` komutu, event-driven + polling fallback).
 - Proje bazlı ayarlar: `.fileconverter.toml` (flag > env > project config > default).
 - Harici bağımlılık kontrolü (FFmpeg, LibreOffice, Pandoc).
 - Format alias desteği (`jpeg -> jpg`, `tiff -> tif`, `markdown -> md`).
@@ -208,6 +209,9 @@ fileconverter-cli batch "*.png" --from png --to jpg --quality 85
 # Toplu olarak story ölçüsüne getir
 fileconverter-cli batch ./videolar --from mp4 --to mp4 --preset story --resize-mode pad
 
+# Recursive batch'te çıktı klasörü altında kaynak dizin yapısını koru
+fileconverter-cli batch ./assets --from png --to jpg --recursive --output ./export --preserve-tree
+
 # Çakışma ve retry ile JSON rapor üret
 fileconverter-cli batch ./resimler --from jpg --to png --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
 
@@ -324,6 +328,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--to` | `-t` | Hedef format (zorunlu) |
 | `--profile` | - | Hazır profil: `social-story`, `podcast-clean`, `archive-lossless` |
 | `--recursive` | `-r` | Alt dizinleri de tara |
+| `--preserve-tree` | - | Dizin modunda `--output` altına kaynak klasör yapısını korur |
 | `--dry-run` | - | Dönüştürmeden önce planı göster |
 | `--quality` | `-q` | Kalite seviyesi (1-100) |
 | `--on-conflict` | - | Çakışma politikası: `overwrite`, `skip`, `versioned` |
@@ -354,7 +359,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--strip-metadata` | - | Metadata bilgisini temizler |
 | `--retry` | - | Başarısız işler için otomatik tekrar sayısı |
 | `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
-| `--interval` | - | Klasör tarama aralığı |
+| `--interval` | - | Periyodik tarama aralığı (event modunda fallback/sağlık kontrolü) |
 | `--settle` | - | Dosyanın stabil sayılması için bekleme süresi |
 
 ### `pipeline run` flag'leri

@@ -1,7 +1,10 @@
 package converter
 
 import (
+	"archive/zip"
 	"fmt"
+	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -148,8 +151,212 @@ func NormalizeFormat(format string) string {
 
 // DetectFormat dosya uzantısından format algılar
 func DetectFormat(filename string) string {
-	ext := filepath.Ext(filename)
-	return NormalizeFormat(ext)
+	ext := NormalizeFormat(filepath.Ext(filename))
+	detected := detectFormatFromContent(filename)
+
+	switch {
+	case detected == "":
+		return ext
+	case ext == "":
+		return detected
+	case ext == detected:
+		return ext
+	}
+
+	// MIME tabanlı zayıf tespitlerde bilinen uzantıyı koru.
+	if isWeakContentGuess(detected) && ext != "" && !isTextLikeFormat(ext) {
+		return ext
+	}
+
+	// Metin tabanlı içeriklerde uzantı genelde daha anlamlıdır (örn: csv vs txt).
+	if isTextLikeFormat(ext) && isTextLikeFormat(detected) {
+		return ext
+	}
+
+	return detected
+}
+
+func detectFormatFromContent(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	header := make([]byte, 8192)
+	n, readErr := f.Read(header)
+	if readErr != nil && n == 0 {
+		return ""
+	}
+	header = header[:n]
+	if len(header) == 0 {
+		return ""
+	}
+
+	if byMagic := detectFormatByMagic(header); byMagic != "" {
+		return byMagic
+	}
+	if byMIME := detectFormatByMIME(header); byMIME != "" {
+		return byMIME
+	}
+	if isZipHeader(header) {
+		if byZip := detectZipDocumentFormat(path); byZip != "" {
+			return byZip
+		}
+	}
+	return ""
+}
+
+func detectFormatByMagic(header []byte) string {
+	if len(header) >= 12 && string(header[0:4]) == "RIFF" {
+		switch string(header[8:12]) {
+		case "WAVE":
+			return "wav"
+		case "AVI ":
+			return "avi"
+		case "WEBP":
+			return "webp"
+		}
+	}
+
+	if len(header) >= 4 {
+		switch string(header[0:4]) {
+		case "%PDF":
+			return "pdf"
+		case "fLaC":
+			return "flac"
+		case "OggS":
+			return "ogg"
+		case "\x1A\x45\xDF\xA3":
+			// Matroska/WebM ayrımı için DocType alanını kontrol et.
+			if strings.Contains(string(header), "webm") {
+				return "webm"
+			}
+			return "mkv"
+		}
+	}
+
+	if len(header) >= 3 && string(header[0:3]) == "ID3" {
+		return "mp3"
+	}
+	if len(header) >= 2 && header[0] == 0xFF && (header[1]&0xE0) == 0xE0 {
+		return "mp3"
+	}
+
+	if len(header) >= 3 && string(header[0:3]) == "FLV" {
+		return "flv"
+	}
+
+	if len(header) >= 16 {
+		asf := []byte{0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C}
+		if slices.Equal(header[:16], asf) {
+			return "wmv"
+		}
+	}
+
+	if len(header) >= 12 && string(header[4:8]) == "ftyp" {
+		brand := string(header[8:12])
+		switch brand {
+		case "M4A ", "M4B ", "M4P ":
+			return "m4a"
+		case "M4V ":
+			return "m4v"
+		case "qt  ":
+			return "mov"
+		default:
+			return "mp4"
+		}
+	}
+
+	return ""
+}
+
+func detectFormatByMIME(header []byte) string {
+	switch http.DetectContentType(header) {
+	case "image/jpeg":
+		return "jpg"
+	case "image/png":
+		return "png"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	case "image/bmp":
+		return "bmp"
+	case "image/tiff":
+		return "tif"
+	case "image/x-icon", "image/vnd.microsoft.icon":
+		return "ico"
+	case "application/pdf":
+		return "pdf"
+	case "text/html; charset=utf-8":
+		return "html"
+	case "text/plain; charset=utf-8":
+		return "txt"
+	case "audio/mpeg":
+		return "mp3"
+	case "audio/ogg":
+		return "ogg"
+	case "video/mp4":
+		return "mp4"
+	case "video/webm":
+		return "webm"
+	}
+	return ""
+}
+
+func detectZipDocumentFormat(path string) string {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return ""
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		name := strings.ToLower(f.Name)
+		switch {
+		case strings.HasPrefix(name, "word/"):
+			return "docx"
+		case name == "mimetype":
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			buf := make([]byte, 128)
+			n, _ := rc.Read(buf)
+			_ = rc.Close()
+			if strings.Contains(string(buf[:n]), "application/vnd.oasis.opendocument.text") {
+				return "odt"
+			}
+		}
+	}
+	return ""
+}
+
+func isZipHeader(header []byte) bool {
+	if len(header) < 4 {
+		return false
+	}
+	sig := string(header[:4])
+	return sig == "PK\x03\x04" || sig == "PK\x05\x06" || sig == "PK\x07\x08"
+}
+
+func isTextLikeFormat(format string) bool {
+	switch NormalizeFormat(format) {
+	case "txt", "md", "csv", "html", "rtf":
+		return true
+	default:
+		return false
+	}
+}
+
+func isWeakContentGuess(format string) bool {
+	switch NormalizeFormat(format) {
+	case "txt", "html":
+		return true
+	default:
+		return false
+	}
 }
 
 // FormatExtensions verilen format için eşdeğer dosya uzantılarını döner.

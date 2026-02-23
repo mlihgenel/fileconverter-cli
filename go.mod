@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/nguyenthenguyen/docx v0.0.0-20230621112118-9c8e795a11db
