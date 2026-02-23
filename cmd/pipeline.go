@@ -20,6 +20,7 @@ var (
 	pipelineStripMD    bool
 	pipelineReport     string
 	pipelineReportFile string
+	pipelineResumeFile string
 	pipelineKeepTemps  bool
 )
 
@@ -74,21 +75,42 @@ var pipelineRunCmd = &cobra.Command{
 			return err
 		}
 		spec = resolvePipelinePaths(spec, specPath)
+		resumePlan, err := buildPipelineResumePlan(spec, pipelineResumeFile)
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
 
 		ui.PrintInfo(fmt.Sprintf("Pipeline çalıştırılıyor: %s", specPath))
 		if pipelineProfile != "" {
 			ui.PrintInfo(fmt.Sprintf("Profil: %s", pipelineProfile))
 		}
+		if strings.TrimSpace(pipelineResumeFile) != "" {
+			if resumePlan.StepOffset > 0 {
+				ui.PrintInfo(fmt.Sprintf("Resume: ilk %d step başarılı bulundu, kaldığı yerden devam ediliyor.", resumePlan.StepOffset))
+			} else {
+				ui.PrintInfo("Resume: uygun başarılı step bulunamadı, pipeline baştan çalışacak.")
+			}
+		}
 
 		started := time.Now()
-		result, execErr := pipeline.Execute(spec, pipeline.ExecuteConfig{
-			OutputDir:      outputDir,
-			Verbose:        verbose,
-			DefaultQuality: pipelineQuality,
-			MetadataMode:   metadataMode,
-			OnConflict:     conflictPolicy,
-			KeepTemps:      pipelineKeepTemps,
-		})
+		result := pipeline.Result{}
+		var execErr error
+		if resumePlan.SkipExecution {
+			result = mergePipelineResumeResult(resumePlan, pipeline.Result{}, started)
+			ui.PrintInfo("Pipeline zaten tamamlanmış görünüyor; yeniden çalıştırma atlandı.")
+		} else {
+			partial, runErr := pipeline.Execute(resumePlan.RunSpec, pipeline.ExecuteConfig{
+				OutputDir:      outputDir,
+				Verbose:        verbose,
+				DefaultQuality: pipelineQuality,
+				MetadataMode:   metadataMode,
+				OnConflict:     conflictPolicy,
+				KeepTemps:      pipelineKeepTemps,
+			})
+			execErr = runErr
+			result = mergePipelineResumeResult(resumePlan, partial, started)
+		}
 		elapsed := time.Since(started)
 
 		if execErr != nil {
@@ -144,6 +166,7 @@ func init() {
 	pipelineRunCmd.Flags().BoolVar(&pipelineStripMD, "strip-metadata", false, "Metadata bilgisini temizle")
 	pipelineRunCmd.Flags().StringVar(&pipelineReport, "report", pipeline.ReportTXT, "Rapor formatı: off, txt, json")
 	pipelineRunCmd.Flags().StringVar(&pipelineReportFile, "report-file", "", "Raporu belirtilen dosyaya yaz")
+	pipelineRunCmd.Flags().StringVar(&pipelineResumeFile, "resume-from-report", "", "Önceki JSON rapordan başarılı step'leri okuyup kaldığı yerden devam et")
 	pipelineRunCmd.Flags().BoolVar(&pipelineKeepTemps, "keep-temps", false, "Ara geçici dosyaları silme")
 
 	pipelineCmd.AddCommand(pipelineRunCmd)

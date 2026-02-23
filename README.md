@@ -215,6 +215,9 @@ fileconverter-cli batch ./assets --from png --to jpg --recursive --output ./expo
 # Çakışma ve retry ile JSON rapor üret
 fileconverter-cli batch ./resimler --from jpg --to png --on-conflict versioned --retry 2 --retry-delay 1s --report json --report-file ./reports/batch.json
 
+# Önceki JSON raporundan başarılı işleri atlayarak devam et
+fileconverter-cli batch ./resimler --from jpg --to png --resume-from-report ./reports/batch.json
+
 # Profil + metadata modu ile batch
 fileconverter-cli batch ./videolar --from mp4 --to mp4 --profile social-story --strip-metadata
 ```
@@ -238,6 +241,9 @@ fileconverter-cli pipeline run ./pipeline.json
 
 # Profil ve metadata ile çalıştır, JSON rapor al
 fileconverter-cli pipeline run ./pipeline.json --profile social-story --strip-metadata --report json --report-file ./reports/pipeline.json
+
+# Önceki JSON rapora göre başarılı step'leri atlayıp kaldığı yerden devam et
+fileconverter-cli pipeline run ./pipeline.json --resume-from-report ./reports/pipeline.json
 ```
 
 Örnek spec dosyası: `pipeline.example.json`
@@ -338,6 +344,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--retry-delay` | - | Retry denemeleri arası bekleme (`500ms`, `2s` vb.) |
 | `--report` | - | Rapor formatı: `off`, `txt`, `json` |
 | `--report-file` | - | Raporu belirtilen dosyaya yazar |
+| `--resume-from-report` | - | Önceki JSON rapordaki `success` girdileri atlayarak devam eder |
 | `--preset` | - | Hazır boyut (ör: `story`, `square`, `fullhd`, `1080x1920`) |
 | `--width` | - | Manuel genişlik değeri |
 | `--height` | - | Manuel yükseklik değeri |
@@ -373,6 +380,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--strip-metadata` | - | Metadata bilgisini temizler |
 | `--report` | - | Rapor formatı: `off`, `txt`, `json` |
 | `--report-file` | - | Raporu belirtilen dosyaya yazar |
+| `--resume-from-report` | - | Önceki JSON pipeline raporuna göre başarılı step'leri atlayıp devam eder |
 | `--keep-temps` | - | Ara geçici dosyaları silmez |
 
 ### `video trim` flag'leri

@@ -29,6 +29,7 @@ var (
 	batchRetryDelay   time.Duration
 	batchReport       string
 	batchReportFile   string
+	batchResumeReport string
 	batchPreset       string
 	batchWidth        float64
 	batchHeight       float64
@@ -170,6 +171,16 @@ Worker pool kullanarak paralel dönüşüm yapar.
 			return nil
 		}
 
+		resumeSuccessSet := map[string]struct{}{}
+		if strings.TrimSpace(batchResumeReport) != "" {
+			resumeSuccessSet, err = loadBatchResumeSuccess(batchResumeReport)
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("Resume raporu okunamadı: %s", err.Error()))
+				return err
+			}
+			ui.PrintInfo(fmt.Sprintf("Resume aktif: %d başarılı girdi atlanacak (rapor: %s)", len(resumeSuccessSet), batchResumeReport))
+		}
+
 		// Dosya bilgisi
 		ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), converter.FormatFilterLabel(fromFormat)))
 		if resizeSpec != nil {
@@ -192,6 +203,22 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		reserved := make(map[string]struct{}, len(files))
 		for _, f := range files {
 			baseOutput := buildBatchOutputPath(f, sourceRoot, targetFormat)
+			if hasResumeSuccess(resumeSuccessSet, f) {
+				jobs = append(jobs, batch.Job{
+					InputPath:  f,
+					OutputPath: baseOutput,
+					From:       fromFormat,
+					To:         targetFormat,
+					SkipReason: "resume_success",
+					Options: converter.Options{
+						Quality:      batchQuality,
+						Verbose:      verbose,
+						Resize:       resizeSpec,
+						MetadataMode: metadataMode,
+					},
+				})
+				continue
+			}
 			resolvedOutput, skipReason, err := resolveBatchOutputPath(baseOutput, conflictPolicy, reserved)
 			if err != nil {
 				ui.PrintError(err.Error())
@@ -301,6 +328,7 @@ func init() {
 	batchCmd.Flags().DurationVar(&batchRetryDelay, "retry-delay", 500*time.Millisecond, "Retry denemeleri arası bekleme (örn: 500ms, 2s)")
 	batchCmd.Flags().StringVar(&batchReport, "report", batch.ReportOff, "Rapor formatı: off, txt, json")
 	batchCmd.Flags().StringVar(&batchReportFile, "report-file", "", "Raporu belirtilen dosyaya yaz")
+	batchCmd.Flags().StringVar(&batchResumeReport, "resume-from-report", "", "Önceki JSON rapordaki başarılı girdileri atlayarak devam et")
 	batchCmd.Flags().StringVar(&batchPreset, "preset", "", "Hazır boyut preset'i (ör: story, square, fullhd, 1080x1920)")
 	batchCmd.Flags().Float64Var(&batchWidth, "width", 0, "Manuel hedef genişlik")
 	batchCmd.Flags().Float64Var(&batchHeight, "height", 0, "Manuel hedef yükseklik")
