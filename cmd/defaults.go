@@ -39,6 +39,12 @@ func applyRootDefaults(cmd *cobra.Command) error {
 		}
 	}
 
+	normalizedOutputFormat := NormalizeOutputFormat(outputFormat)
+	if normalizedOutputFormat == "" {
+		return outputFormatError(outputFormat)
+	}
+	outputFormat = normalizedOutputFormat
+
 	return nil
 }
 

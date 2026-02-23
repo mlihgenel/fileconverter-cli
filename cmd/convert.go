@@ -47,6 +47,7 @@ var convertCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFile := args[0]
+		jsonOutput := isJSONOutput()
 		applyProfileDefault(cmd, "profile", &convertProfile)
 		applyQualityDefault(cmd, "quality", &quality)
 		applyOnConflictDefault(cmd, "on-conflict", &convertOnConflict)
@@ -112,6 +113,15 @@ var convertCmd = &cobra.Command{
 		}
 		// Aynı format, resize yoksa no-op
 		if fromFormat == targetFormat && resizeSpec == nil {
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"status": "skipped",
+					"reason": "same_format",
+					"input":  inputFile,
+					"from":   fromFormat,
+					"to":     targetFormat,
+				})
+			}
 			ui.PrintWarning("Kaynak ve hedef format aynı, dönüşüm gerekli değil.")
 			return nil
 		}
@@ -132,12 +142,22 @@ var convertCmd = &cobra.Command{
 			return err
 		}
 		if skip {
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"status": "skipped",
+					"reason": "output_exists",
+					"input":  inputFile,
+					"output": outputFile,
+					"from":   fromFormat,
+					"to":     targetFormat,
+				})
+			}
 			ui.PrintWarning(fmt.Sprintf("Çıktı dosyası mevcut, atlandı: %s", outputFile))
 			return nil
 		}
 
 		// Dönüşüm bilgisi
-		if verbose {
+		if verbose && !jsonOutput {
 			ui.PrintInfo(fmt.Sprintf("Dönüştürücü: %s", conv.Name()))
 			ui.PrintInfo(fmt.Sprintf("Kaynak: %s (%s)", inputFile, fromFormat))
 			ui.PrintInfo(fmt.Sprintf("Hedef:  %s (%s)", outputFile, targetFormat))
@@ -150,7 +170,9 @@ var convertCmd = &cobra.Command{
 			}
 		}
 
-		ui.PrintConversion(inputFile, outputFile)
+		if !jsonOutput {
+			ui.PrintConversion(inputFile, outputFile)
+		}
 
 		// Dönüşümü yap
 		start := time.Now()
@@ -168,15 +190,31 @@ var convertCmd = &cobra.Command{
 		}
 
 		duration := time.Since(start)
-		ui.PrintSuccess(fmt.Sprintf("Dönüşüm tamamlandı!"))
-		ui.PrintDuration(duration)
+		if !jsonOutput {
+			ui.PrintSuccess(fmt.Sprintf("Dönüşüm tamamlandı!"))
+			ui.PrintDuration(duration)
+		}
 
 		// Dosya boyutu bilgisi
+		var sizeBytes int64
 		if info, err := os.Stat(outputFile); err == nil {
+			sizeBytes = info.Size()
 			size := formatFileSize(info.Size())
-			if verbose {
+			if verbose && !jsonOutput {
 				ui.PrintInfo(fmt.Sprintf("Çıktı boyutu: %s", size))
 			}
+		}
+		if jsonOutput {
+			return printJSON(map[string]interface{}{
+				"status":      "success",
+				"input":       inputFile,
+				"output":      outputFile,
+				"from":        fromFormat,
+				"to":          targetFormat,
+				"converter":   conv.Name(),
+				"duration_ms": duration.Milliseconds(),
+				"size_bytes":  sizeBytes,
+			})
 		}
 
 		return nil

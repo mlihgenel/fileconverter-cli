@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	verbose   bool
-	outputDir string
-	workers   int
+	verbose      bool
+	outputDir    string
+	workers      int
+	outputFormat string
 
 	appVersion = "dev"
 	appDate    = ""
@@ -115,6 +116,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Detaylı çıktı modu")
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "output", "o", "", "Çıktı dizini (varsayılan: kaynak dizin)")
 	rootCmd.PersistentFlags().IntVarP(&workers, "workers", "w", runtime.NumCPU(), "Paralel worker sayısı (batch modunda)")
+	rootCmd.PersistentFlags().StringVar(&outputFormat, "output-format", OutputFormatText, "CLI çıktı formatı: text veya json")
 
 	SetVersionInfo(appVersion, appDate)
 

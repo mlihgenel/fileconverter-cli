@@ -16,6 +16,13 @@ var (
 	formatsTo   string
 )
 
+type formatsJSONPayload struct {
+	TotalFormats     int                    `json:"total_formats"`
+	TotalConversions int                    `json:"total_conversions"`
+	FFmpegAvailable  bool                   `json:"ffmpeg_available"`
+	Categories       map[string]interface{} `json:"categories"`
+}
+
 var formatsCmd = &cobra.Command{
 	Use:   "formats",
 	Short: "Desteklenen formatları ve dönüşümleri listele",
@@ -39,6 +46,13 @@ var formatsCmd = &cobra.Command{
 func showAllFormats() error {
 	pairs := converter.GetAllConversions()
 	if len(pairs) == 0 {
+		if isJSONOutput() {
+			return printJSON(map[string]interface{}{
+				"total_formats":     0,
+				"total_conversions": 0,
+				"categories":        map[string]interface{}{},
+			})
+		}
 		ui.PrintWarning("Hiç dönüşüm kaydedilmemiş.")
 		return nil
 	}
@@ -48,6 +62,21 @@ func showAllFormats() error {
 	audioPairs := filterByCategory(pairs, "audio")
 	imgPairs := filterByCategory(pairs, "image")
 	videoPairs := filterByCategory(pairs, "video")
+
+	if isJSONOutput() {
+		payload := formatsJSONPayload{
+			TotalFormats:     len(converter.GetAllFormats()),
+			TotalConversions: len(pairs),
+			FFmpegAvailable:  converter.IsFFmpegAvailable(),
+			Categories: map[string]interface{}{
+				"document": docPairs,
+				"audio":    audioPairs,
+				"image":    imgPairs,
+				"video":    videoPairs,
+			},
+		}
+		return printJSON(payload)
+	}
 
 	fmt.Println()
 	fmt.Printf("  %s %s%sDesteklenen Dönüşümler%s\n", "📋", ui.Bold, ui.Cyan, ui.Reset)
@@ -98,6 +127,14 @@ func showConversionsFrom(from string) error {
 	from = converter.NormalizeFormat(from)
 	pairs := converter.GetConversionsFrom(from)
 
+	if isJSONOutput() {
+		return printJSON(map[string]interface{}{
+			"from":        from,
+			"count":       len(pairs),
+			"conversions": pairs,
+		})
+	}
+
 	if len(pairs) == 0 {
 		ui.PrintWarning(fmt.Sprintf("'%s' formatından yapılabilecek dönüşüm bulunamadı.", from))
 		return nil
@@ -121,6 +158,14 @@ func showConversionsFrom(from string) error {
 func showConversionsTo(to string) error {
 	to = converter.NormalizeFormat(to)
 	pairs := converter.GetConversionsTo(to)
+
+	if isJSONOutput() {
+		return printJSON(map[string]interface{}{
+			"to":          to,
+			"count":       len(pairs),
+			"conversions": pairs,
+		})
+	}
 
 	if len(pairs) == 0 {
 		ui.PrintWarning(fmt.Sprintf("'%s' formatına dönüştürülebilecek kaynak bulunamadı.", to))

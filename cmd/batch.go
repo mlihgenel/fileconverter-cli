@@ -59,6 +59,7 @@ Worker pool kullanarak paralel dönüşüm yapar.
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		source := args[0]
+		jsonOutput := isJSONOutput()
 		applyProfileDefault(cmd, "profile", &batchProfile)
 		applyQualityDefault(cmd, "quality", &batchQuality)
 		applyOnConflictDefault(cmd, "on-conflict", &batchOnConflict)
@@ -126,6 +127,14 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		}
 		// Aynı format, resize yoksa no-op
 		if fromFormat == targetFormat && resizeSpec == nil {
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"status": "skipped",
+					"reason": "same_format",
+					"from":   fromFormat,
+					"to":     targetFormat,
+				})
+			}
 			ui.PrintWarning("Kaynak ve hedef format aynı, dönüşüm gerekli değil.")
 			return nil
 		}
@@ -167,6 +176,14 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		}
 
 		if len(files) == 0 {
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"status": "empty",
+					"count":  0,
+					"from":   fromFormat,
+					"to":     targetFormat,
+				})
+			}
 			ui.PrintWarning(fmt.Sprintf("'%s' formatında dosya bulunamadı.", converter.FormatFilterLabel(fromFormat)))
 			return nil
 		}
@@ -178,12 +195,16 @@ Worker pool kullanarak paralel dönüşüm yapar.
 				ui.PrintError(fmt.Sprintf("Resume raporu okunamadı: %s", err.Error()))
 				return err
 			}
-			ui.PrintInfo(fmt.Sprintf("Resume aktif: %d başarılı girdi atlanacak (rapor: %s)", len(resumeSuccessSet), batchResumeReport))
+			if !jsonOutput {
+				ui.PrintInfo(fmt.Sprintf("Resume aktif: %d başarılı girdi atlanacak (rapor: %s)", len(resumeSuccessSet), batchResumeReport))
+			}
 		}
 
 		// Dosya bilgisi
-		ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), converter.FormatFilterLabel(fromFormat)))
-		if resizeSpec != nil {
+		if !jsonOutput {
+			ui.PrintInfo(fmt.Sprintf("%d adet .%s dosyası bulundu", len(files), converter.FormatFilterLabel(fromFormat)))
+		}
+		if resizeSpec != nil && !jsonOutput {
 			source := "manuel"
 			if resizeSpec.Preset != "" {
 				source = "preset: " + resizeSpec.Preset
@@ -191,7 +212,7 @@ Worker pool kullanarak paralel dönüşüm yapar.
 			ui.PrintInfo(fmt.Sprintf("Boyutlandırma: %dx%d (%s, mod: %s)", resizeSpec.Width, resizeSpec.Height, source, resizeSpec.Mode))
 		}
 
-		if verbose {
+		if verbose && !jsonOutput {
 			for _, f := range files {
 				fmt.Printf("  %s %s\n", ui.IconFile, f)
 			}
@@ -241,16 +262,42 @@ Worker pool kullanarak paralel dönüşüm yapar.
 
 		// Dry-run modu
 		if batchDryRun {
-			ui.PrintInfo("Ön izleme modu (--dry-run) — dönüşüm yapılmayacak:")
-			fmt.Println()
+			if !jsonOutput {
+				ui.PrintInfo("Ön izleme modu (--dry-run) — dönüşüm yapılmayacak:")
+				fmt.Println()
+			}
 			skipped := 0
+			items := make([]map[string]string, 0, len(jobs))
 			for _, job := range jobs {
 				if job.SkipReason != "" {
 					skipped++
-					ui.PrintWarning(fmt.Sprintf("Atlanacak: %s (sebep: %s)", job.InputPath, job.SkipReason))
+					if !jsonOutput {
+						ui.PrintWarning(fmt.Sprintf("Atlanacak: %s (sebep: %s)", job.InputPath, job.SkipReason))
+					}
+					items = append(items, map[string]string{
+						"status": "skipped",
+						"input":  job.InputPath,
+						"output": job.OutputPath,
+						"reason": job.SkipReason,
+					})
 					continue
 				}
-				ui.PrintConversion(job.InputPath, job.OutputPath)
+				if !jsonOutput {
+					ui.PrintConversion(job.InputPath, job.OutputPath)
+				}
+				items = append(items, map[string]string{
+					"status": "planned",
+					"input":  job.InputPath,
+					"output": job.OutputPath,
+				})
+			}
+			if jsonOutput {
+				return printJSON(map[string]interface{}{
+					"mode":    "dry-run",
+					"total":   len(jobs),
+					"skipped": skipped,
+					"items":   items,
+				})
 			}
 			fmt.Println()
 			ui.PrintInfo(fmt.Sprintf("Toplam %d dosya işlenecek (%d atlanacak).", len(jobs), skipped))
@@ -262,14 +309,18 @@ Worker pool kullanarak paralel dönüşüm yapar.
 		pool := batch.NewPool(workers)
 		pool.SetRetry(batchRetry, batchRetryDelay)
 
-		// Progress bar
-		pb := ui.NewProgressBar(len(jobs), "Dönüştürülüyor")
-		pool.OnProgress = func(completed, total int) {
-			pb.Update(completed)
+		if !jsonOutput {
+			// Progress bar
+			pb := ui.NewProgressBar(len(jobs), "Dönüştürülüyor")
+			pool.OnProgress = func(completed, total int) {
+				pb.Update(completed)
+			}
 		}
 
 		// Çalıştır
-		fmt.Println()
+		if !jsonOutput {
+			fmt.Println()
+		}
 		startedAt := time.Now()
 		results := pool.Execute(jobs)
 		endedAt := time.Now()
@@ -277,10 +328,12 @@ Worker pool kullanarak paralel dönüşüm yapar.
 
 		// Sonuçları özetle
 		summary := batch.GetSummary(results, totalDuration)
-		ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Skipped, summary.Failed, totalDuration)
+		if !jsonOutput {
+			ui.PrintBatchSummary(summary.Total, summary.Succeeded, summary.Skipped, summary.Failed, totalDuration)
+		}
 
 		// Hataları göster
-		if len(summary.Errors) > 0 {
+		if len(summary.Errors) > 0 && !jsonOutput {
 			ui.PrintError("Başarısız dönüşümler:")
 			for _, e := range summary.Errors {
 				fmt.Printf("  %s %s: %s (deneme: %d)\n", ui.IconError, e.InputFile, e.Error, e.Attempts)
@@ -299,10 +352,19 @@ Worker pool kullanarak paralel dönüşüm yapar.
 					ui.PrintError(fmt.Sprintf("Rapor dosyaya yazılamadı: %s", err.Error()))
 					return err
 				}
-				ui.PrintInfo(fmt.Sprintf("Rapor yazıldı: %s", batchReportFile))
-			} else {
+				if !jsonOutput {
+					ui.PrintInfo(fmt.Sprintf("Rapor yazıldı: %s", batchReportFile))
+				}
+			} else if !jsonOutput {
 				fmt.Println(reportText)
 			}
+		}
+		if jsonOutput {
+			jsonReport, err := batch.RenderReport(batch.ReportJSON, summary, results, startedAt, endedAt)
+			if err != nil {
+				return err
+			}
+			fmt.Println(jsonReport)
 		}
 
 		if summary.Failed > 0 {

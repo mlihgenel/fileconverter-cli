@@ -40,6 +40,7 @@ var pipelineRunCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		specPath := args[0]
+		jsonOutput := isJSONOutput()
 
 		applyProfileDefault(cmd, "profile", &pipelineProfile)
 		applyQualityDefault(cmd, "quality", &pipelineQuality)
@@ -81,11 +82,13 @@ var pipelineRunCmd = &cobra.Command{
 			return err
 		}
 
-		ui.PrintInfo(fmt.Sprintf("Pipeline çalıştırılıyor: %s", specPath))
-		if pipelineProfile != "" {
+		if !jsonOutput {
+			ui.PrintInfo(fmt.Sprintf("Pipeline çalıştırılıyor: %s", specPath))
+		}
+		if pipelineProfile != "" && !jsonOutput {
 			ui.PrintInfo(fmt.Sprintf("Profil: %s", pipelineProfile))
 		}
-		if strings.TrimSpace(pipelineResumeFile) != "" {
+		if strings.TrimSpace(pipelineResumeFile) != "" && !jsonOutput {
 			if resumePlan.StepOffset > 0 {
 				ui.PrintInfo(fmt.Sprintf("Resume: ilk %d step başarılı bulundu, kaldığı yerden devam ediliyor.", resumePlan.StepOffset))
 			} else {
@@ -98,7 +101,9 @@ var pipelineRunCmd = &cobra.Command{
 		var execErr error
 		if resumePlan.SkipExecution {
 			result = mergePipelineResumeResult(resumePlan, pipeline.Result{}, started)
-			ui.PrintInfo("Pipeline zaten tamamlanmış görünüyor; yeniden çalıştırma atlandı.")
+			if !jsonOutput {
+				ui.PrintInfo("Pipeline zaten tamamlanmış görünüyor; yeniden çalıştırma atlandı.")
+			}
 		} else {
 			partial, runErr := pipeline.Execute(resumePlan.RunSpec, pipeline.ExecuteConfig{
 				OutputDir:      outputDir,
@@ -113,18 +118,20 @@ var pipelineRunCmd = &cobra.Command{
 		}
 		elapsed := time.Since(started)
 
-		if execErr != nil {
-			ui.PrintError(fmt.Sprintf("Pipeline başarısız: %s", execErr.Error()))
-		} else {
-			ui.PrintSuccess("Pipeline tamamlandı.")
-		}
-		ui.PrintDuration(elapsed)
-
-		for _, s := range result.Steps {
-			if s.Success {
-				ui.PrintInfo(fmt.Sprintf("Step %d (%s): %s -> %s", s.Index, s.Type, s.Input, s.Output))
+		if !jsonOutput {
+			if execErr != nil {
+				ui.PrintError(fmt.Sprintf("Pipeline başarısız: %s", execErr.Error()))
 			} else {
-				ui.PrintError(fmt.Sprintf("Step %d (%s) hatası: %s", s.Index, s.Type, s.Error))
+				ui.PrintSuccess("Pipeline tamamlandı.")
+			}
+			ui.PrintDuration(elapsed)
+
+			for _, s := range result.Steps {
+				if s.Success {
+					ui.PrintInfo(fmt.Sprintf("Step %d (%s): %s -> %s", s.Index, s.Type, s.Input, s.Output))
+				} else {
+					ui.PrintError(fmt.Sprintf("Step %d (%s) hatası: %s", s.Index, s.Type, s.Error))
+				}
 			}
 		}
 
@@ -145,10 +152,19 @@ var pipelineRunCmd = &cobra.Command{
 					}
 					return err
 				}
-				ui.PrintInfo(fmt.Sprintf("Rapor yazıldı: %s", pipelineReportFile))
-			} else {
+				if !jsonOutput {
+					ui.PrintInfo(fmt.Sprintf("Rapor yazıldı: %s", pipelineReportFile))
+				}
+			} else if !jsonOutput {
 				fmt.Println(reportText)
 			}
+		}
+		if jsonOutput {
+			jsonReport, err := pipeline.RenderReport(pipeline.ReportJSON, result)
+			if err != nil {
+				return err
+			}
+			fmt.Println(jsonReport)
 		}
 
 		if execErr != nil {
