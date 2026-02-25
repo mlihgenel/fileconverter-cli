@@ -68,3 +68,4 @@ libreoffice-profile-*/
 .env.*.local
 !.env.example
 
+ROADMAP.md

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +26,8 @@ var (
 	convertUnit       string
 	convertResizeDPI  float64
 	convertResizeMode string
+	convertOptimize   bool
+	convertTargetSize string
 )
 
 var convertCmd = &cobra.Command{
@@ -182,6 +185,15 @@ var convertCmd = &cobra.Command{
 			Name:         customName,
 			Resize:       resizeSpec,
 			MetadataMode: metadataMode,
+			Optimize:     convertOptimize,
+		}
+		if convertTargetSize != "" {
+			parsedSize, err := parseSize(convertTargetSize)
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("Geçersiz hedef boyut: %s", err.Error()))
+				return err
+			}
+			opts.TargetSize = parsedSize
 		}
 
 		if err := conv.Convert(inputFile, outputFile, opts); err != nil {
@@ -235,6 +247,8 @@ func init() {
 	convertCmd.Flags().StringVar(&convertUnit, "unit", "px", "Manuel ölçü birimi: px veya cm")
 	convertCmd.Flags().Float64Var(&convertResizeDPI, "dpi", 96, "Birim cm ise kullanılacak DPI değeri")
 	convertCmd.Flags().StringVar(&convertResizeMode, "resize-mode", "pad", "Boyutlandırma modu: pad, fit, fill, stretch")
+	convertCmd.Flags().BoolVar(&convertOptimize, "optimize", false, "Dosya boyutunu minimize et")
+	convertCmd.Flags().StringVar(&convertTargetSize, "target-size", "", "Hedef dosya boyutu (ör: 500kb, 2mb)")
 
 	convertCmd.MarkFlagRequired("to")
 
@@ -253,4 +267,44 @@ func formatFileSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// parseSize "500kb", "2mb" gibi insan okunabilir boyutları byte'a çevirir
+func parseSize(s string) (int64, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return 0, fmt.Errorf("boyut değeri boş")
+	}
+
+	multipliers := map[string]int64{
+		"b":  1,
+		"kb": 1024,
+		"mb": 1024 * 1024,
+		"gb": 1024 * 1024 * 1024,
+	}
+
+	for suffix, mult := range multipliers {
+		if strings.HasSuffix(s, suffix) {
+			numStr := strings.TrimSuffix(s, suffix)
+			numStr = strings.TrimSpace(numStr)
+			var val float64
+			if _, err := fmt.Sscanf(numStr, "%f", &val); err != nil {
+				return 0, fmt.Errorf("geçersiz boyut değeri: %s", s)
+			}
+			if val <= 0 {
+				return 0, fmt.Errorf("boyut sıfırdan büyük olmalı")
+			}
+			return int64(val * float64(mult)), nil
+		}
+	}
+
+	// Saf sayı — byte olarak kabul et
+	var val float64
+	if _, err := fmt.Sscanf(s, "%f", &val); err != nil {
+		return 0, fmt.Errorf("geçersiz boyut değeri: %s", s)
+	}
+	if val <= 0 {
+		return 0, fmt.Errorf("boyut sıfırdan büyük olmalı")
+	}
+	return int64(val), nil
 }

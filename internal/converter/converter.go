@@ -19,6 +19,10 @@ type Options struct {
 	Resize  *ResizeSpec
 	// MetadataMode: auto, preserve, strip
 	MetadataMode string
+	// Optimize: dosya boyutunu minimize et (görsel dönüşümlerinde)
+	Optimize bool
+	// TargetSize: hedef dosya boyutu (byte), 0 = sınırsız
+	TargetSize int64
 }
 
 // Result dönüşüm sonucunu tutar

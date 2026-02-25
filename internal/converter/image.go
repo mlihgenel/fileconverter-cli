@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/HugoSmits86/nativewebp"
 	"golang.org/x/image/bmp"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/tiff"
@@ -34,8 +35,8 @@ func (ic *ImageConverter) Name() string {
 // imageFormats desteklenen görsel formatları
 var imageFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}
 
-// imageWriteFormats yazılabilir formatlar (webp decode-only)
-var imageWriteFormats = []string{"png", "jpg", "bmp", "gif", "tif", "ico"}
+// imageWriteFormats yazılabilir formatlar
+var imageWriteFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}
 
 func (ic *ImageConverter) SupportedConversions() []ConversionPair {
 	var pairs []ConversionPair
@@ -100,8 +101,21 @@ func (ic *ImageConverter) Convert(input string, output string, opts Options) err
 		}
 	}
 
-	// Hedef formata encode et
-	return ic.encodeImage(output, img, to, opts.Quality)
+	// Optimize: kaliteyi otomatik düşür
+	quality := opts.Quality
+	if opts.Optimize && quality <= 0 {
+		switch to {
+		case "jpg":
+			quality = 60
+		}
+	}
+
+	// TargetSize: binary search ile kalite yakınsama (sadece lossy formatlar)
+	if opts.TargetSize > 0 && to == "jpg" {
+		return ic.encodeToTargetSize(output, img, to, opts.TargetSize)
+	}
+
+	return ic.encodeImage(output, img, to, quality, opts.Optimize)
 }
 
 func (ic *ImageConverter) resizeImage(src image.Image, spec ResizeSpec) (image.Image, error) {
@@ -243,7 +257,7 @@ func (ic *ImageConverter) decodeImage(path string, format string) (image.Image, 
 }
 
 // encodeImage formatına göre görseli encode eder
-func (ic *ImageConverter) encodeImage(path string, img image.Image, format string, quality int) error {
+func (ic *ImageConverter) encodeImage(path string, img image.Image, format string, quality int, optimize bool) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("çıktı dosyası oluşturulamadı: %w", err)
@@ -252,7 +266,11 @@ func (ic *ImageConverter) encodeImage(path string, img image.Image, format strin
 
 	switch format {
 	case "png":
-		err = png.Encode(f, img)
+		enc := &png.Encoder{}
+		if optimize {
+			enc.CompressionLevel = png.BestCompression
+		}
+		err = enc.Encode(f, img)
 	case "jpg":
 		q := 85 // varsayılan JPEG kalitesi
 		if quality > 0 && quality <= 100 {
@@ -265,6 +283,8 @@ func (ic *ImageConverter) encodeImage(path string, img image.Image, format strin
 		err = bmp.Encode(f, img)
 	case "tif":
 		err = tiff.Encode(f, img, nil)
+	case "webp":
+		err = nativewebp.Encode(f, img, nil)
 	case "ico":
 		err = encodeICO(f, img)
 	default:
@@ -275,6 +295,45 @@ func (ic *ImageConverter) encodeImage(path string, img image.Image, format strin
 		return fmt.Errorf("görsel encode hatası (%s): %w", format, err)
 	}
 	return nil
+}
+
+// encodeToTargetSize binary search ile JPEG kalitesini hedef dosya boyutuna yakınsar
+func (ic *ImageConverter) encodeToTargetSize(path string, img image.Image, format string, targetSize int64) error {
+	minQ, maxQ := 10, 95
+	bestQ := 80
+	tolerance := 0.15 // ±%15
+
+	for i := 0; i < 8; i++ {
+		midQ := (minQ + maxQ) / 2
+
+		// Buffer'a encode et
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: midQ}); err != nil {
+			return fmt.Errorf("optimize encode hatası: %w", err)
+		}
+
+		size := int64(buf.Len())
+		bestQ = midQ
+
+		// Hedef boyuta yeterince yakınsa dur
+		ratio := float64(size) / float64(targetSize)
+		if ratio >= 1.0-tolerance && ratio <= 1.0+tolerance {
+			break
+		}
+
+		if size > targetSize {
+			maxQ = midQ - 1
+		} else {
+			minQ = midQ + 1
+		}
+
+		if minQ > maxQ {
+			break
+		}
+	}
+
+	// En iyi kalite ile dosyaya yaz
+	return ic.encodeImage(path, img, format, bestQ, false)
 }
 
 // decodeICO ICO dosyasından ilk görseli okur (PNG veya BMP sub-image)
