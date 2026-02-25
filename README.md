@@ -43,6 +43,9 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 
 ## Özellikler
 - Belge, görsel, ses ve video dönüşümleri.
+- WebP encode desteği: tüm görsel formatlarından WebP'ye dönüşüm (pure Go, lossless VP8L).
+- Görsel optimizasyon: `--optimize` ile dosya boyutunu minimize etme, `--target-size 500kb` ile hedef boyuta yaklaşma.
+- Dosya bilgisi komutu: `info` ile format, çözünürlük, codec, süre, bitrate bilgisi (JSON çıktı desteği).
 - `mp4 -> gif` dahil video dönüşümü.
 - Video düzenleme (`video trim`): `clip` modunda aralık çıkarır, `remove` modunda aralığı silip kalan parçaları birleştirir.
 - Video trim preview/plan: CLI’de `--dry-run/--preview`; TUI’de çalıştırmadan önce plan onayı ekranı.
@@ -50,7 +53,7 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 - TUI video trim timeline adımı: başlangıç/bitiş aralığını klavye ile hızlı kaydırma ve remove modunda çoklu segment yönetimi (`a/n/p/d/m`).
 - Görsel/video boyutlandırma: manuel (`px`/`cm`) veya hazır preset (`story`, `square`, `fullhd` vb.).
 - Oranı koruyarak dikey/yatay uyarlama (`pad`, `fit`, `fill`, `stretch`); `pad` modunda siyah boşluk desteği.
-- Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Düzenle (Klip/Sil)`, `Boyutlandır`, `Toplu Boyutlandır`.
+- Interaktif ana menüde ayrı akışlar: `Dosya Dönüştür`, `Toplu Dönüştür`, `Klasör İzle`, `Video Düzenle (Klip/Sil)`, `Boyutlandır`, `Toplu Boyutlandır`, `Dosya Bilgisi`.
 - Batch dönüşüm (dizin veya glob pattern).
 - Paralel işleme (`--workers`) ile yüksek performans.
 - Ön izleme modu (`--dry-run`) ile risksiz batch planlama.
@@ -175,6 +178,13 @@ fileconverter-cli convert belge.md --to pdf
 # Görsel
 fileconverter-cli convert fotograf.jpeg --to png
 
+# Görseli WebP'ye dönüştür
+fileconverter-cli convert fotograf.png --to webp
+
+# Görsel optimizasyonu (dosya boyutunu küçült)
+fileconverter-cli convert fotograf.jpg --to jpg --optimize
+fileconverter-cli convert fotograf.jpg --to jpg --target-size 500kb
+
 # Ses
 fileconverter-cli convert ses.mp3 --to wav
 
@@ -192,6 +202,10 @@ fileconverter-cli convert klip.mp4 --to mp4 --profile social-story
 
 # Metadata temizleme
 fileconverter-cli convert kamera.mov --to mp4 --strip-metadata
+
+# Dosya bilgisi görme
+fileconverter-cli info fotograf.jpg
+fileconverter-cli info video.mp4 --output-format json
 ```
 
 ### Toplu (batch) dönüşüm
@@ -295,6 +309,7 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
 | `fileconverter-cli video trim <dosya>` | `clip`: aralık çıkarır, `remove`: aralığı siler + birleştirir | `fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
+| `fileconverter-cli info <dosya>` | Dosya bilgisi gösterir (format, boyut, çözünürlük, codec) | `fileconverter-cli info foto.jpg` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
 | `fileconverter-cli completion <shell>` | Shell completion üretir | `fileconverter-cli completion zsh` |
 | `fileconverter-cli help [komut]` | Komut yardımı gösterir | `fileconverter-cli help batch` |
@@ -328,6 +343,8 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `--unit` | - | Manuel birim (`px` veya `cm`) |
 | `--dpi` | - | `cm` kullanıldığında DPI değeri |
 | `--resize-mode` | - | Boyutlandırma modu: `pad`, `fit`, `fill`, `stretch` |
+| `--optimize` | - | Dosya boyutunu minimize et (görsel dönüşümlerinde) |
+| `--target-size` | - | Hedef dosya boyutu (ör: `500kb`, `2mb`) |
 
 ### `batch` flag'leri
 
@@ -438,8 +455,7 @@ fileconverter-cli formats
 
 ### Görseller
 - Kaynak: `png`, `jpg/jpeg`, `webp`, `bmp`, `gif`, `tif/tiff`, `ico`
-- Hedef: `png`, `jpg/jpeg`, `bmp`, `gif`, `tif/tiff`, `ico`
-- Not: `webp` şu an yalnızca kaynak (decode) olarak desteklenir.
+- Hedef: `png`, `jpg/jpeg`, `webp`, `bmp`, `gif`, `tif/tiff`, `ico`
 
 ### Ses (FFmpeg)
 - `mp3`, `wav`, `ogg`, `flac`, `aac`, `m4a`, `wma`, `opus`, `webm`

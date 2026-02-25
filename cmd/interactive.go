@@ -135,6 +135,7 @@ const (
 	menuActionFormats       mainMenuAction = "formats"
 	menuActionDependencies  mainMenuAction = "dependencies"
 	menuActionSettings      mainMenuAction = "settings"
+	menuActionFileInfo      mainMenuAction = "file-info"
 )
 
 type mainMenuItem struct {
@@ -189,6 +190,7 @@ var topLevelSections = []mainMenuSection{
 		Icon:  "⚙️",
 		Desc:  "Format rehberi, sistem durumu ve ayarlar",
 		Items: []mainMenuItem{
+			{Label: "Dosya Bilgisi", Icon: "🔍", Desc: "Dosya format, boyut, çözünürlük bilgisi", Action: menuActionFileInfo},
 			{Label: "Desteklenen Formatlar", Icon: "📋", Desc: "Kategori bazlı format desteğini görüntüle", Action: menuActionFormats},
 			{Label: "Sistem Kontrolü", Icon: "🔧", Desc: "FFmpeg/LibreOffice/Pandoc durumunu gör", Action: menuActionDependencies},
 			{Label: "Ayarlar", Icon: "🛠️", Desc: "Varsayılan çıktı dizini ve tercihleri yönet", Action: menuActionSettings},
@@ -265,6 +267,8 @@ const (
 	stateVideoTrimTimeline
 	stateVideoTrimCodec
 	stateVideoTrimPreview
+	stateFileInfoBrowser
+	stateFileInfo
 )
 
 // ========================================
@@ -398,6 +402,10 @@ type interactiveModel struct {
 	trimActiveSegment  int
 	trimValidationErr  string
 	trimPreviewPlan    *videoTrimPlan
+
+	// Dosya bilgisi
+	infoFilePath string
+	infoResult   *converter.FileInfo
 }
 
 type browserEntry struct {
@@ -901,7 +909,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m interactiveModel) getMaxCursor() int {
 	switch m.state {
-	case stateFileBrowser:
+	case stateFileBrowser, stateFileInfoBrowser:
 		return len(m.browserItems) - 1
 	case stateFormats:
 		return 0
@@ -981,6 +989,10 @@ func (m interactiveModel) View() string {
 		return m.viewBatchDone()
 	case stateFormats:
 		return m.viewFormats()
+	case stateFileInfoBrowser:
+		return m.viewFileInfoBrowser()
+	case stateFileInfo:
+		return m.viewFileInfo()
 	case stateDependencies:
 		return m.viewDependencies()
 	case stateSettings:
@@ -1584,6 +1596,16 @@ func (m interactiveModel) runMainMenuAction(action mainMenuAction) (interactiveM
 		return m.goToCategorySelect(false, true, false), nil
 	case menuActionResizeBatch:
 		return m.goToCategorySelect(true, true, false), nil
+	case menuActionFileInfo:
+		m.flowIsBatch = false
+		m.flowResizeOnly = false
+		m.flowIsWatch = false
+		m.flowVideoTrim = false
+		m.browserDir = m.defaultOutput
+		m.loadBrowserItems()
+		m.cursor = 0
+		m.state = stateFileInfoBrowser
+		return m, nil
 	case menuActionFormats:
 		m.state = stateFormats
 		m.cursor = 0
@@ -1746,6 +1768,30 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 				m.state = stateConverting
 				return m, m.doConvert()
 			}
+		}
+
+	case stateFileInfoBrowser:
+		if m.cursor < len(m.browserItems) {
+			item := m.browserItems[m.cursor]
+			if item.isDir {
+				m.browserDir = item.path
+				m.cursor = 0
+				m.loadBrowserItems()
+				return m, nil
+			}
+			// Dosya seçildi — bilgi topla
+			m.infoFilePath = item.path
+			info, err := converter.GetFileInfo(item.path)
+			if err != nil {
+				m.resultMsg = err.Error()
+				m.resultErr = true
+				m.state = stateConvertDone
+				return m, nil
+			}
+			m.infoResult = &info
+			m.state = stateFileInfo
+			m.cursor = 0
+			return m, nil
 		}
 
 	case stateBatchSelectCategory:
@@ -2229,7 +2275,9 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.cursor = 0
 		m.trimValidationErr = ""
 		return m
-	case stateConvertDone, stateBatchDone, stateFormats:
+	case stateConvertDone, stateBatchDone, stateFormats, stateFileInfo:
+		return m.goToMainMenu()
+	case stateFileInfoBrowser:
 		return m.goToMainMenu()
 	case stateSettings:
 		return m.goToMainMenu()
@@ -3230,6 +3278,132 @@ func (m interactiveModel) viewWatching() string {
 
 	b.WriteString(dimStyle.Render("  Esc: Watch ekranına geri dön  •  q: Ana menü"))
 	b.WriteString("\n")
+
+	return b.String()
+}
+
+func (m interactiveModel) viewFileInfoBrowser() string {
+	var b strings.Builder
+
+	b.WriteString("\n")
+	crumb := fmt.Sprintf("  🔍 %s", lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Dosya Bilgisi"))
+	b.WriteString(breadcrumbStyle.Render(crumb))
+	b.WriteString("\n\n")
+
+	b.WriteString(menuTitleStyle.Render(" ◆ Dosya Seçin "))
+	b.WriteString("\n")
+
+	shortDir := shortenPath(m.browserDir)
+	b.WriteString(pathStyle.Render(fmt.Sprintf("  📁 Dizin: %s", shortDir)))
+	b.WriteString("\n\n")
+
+	maxVisible := m.height - 12
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+	startIdx := 0
+	if m.cursor >= maxVisible {
+		startIdx = m.cursor - maxVisible + 1
+	}
+	endIdx := startIdx + maxVisible
+	if endIdx > len(m.browserItems) {
+		endIdx = len(m.browserItems)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		item := m.browserItems[i]
+		if i == m.cursor {
+			if item.isDir {
+				b.WriteString(selectedItemStyle.Render(fmt.Sprintf("▸ 📁 %s/", item.name)))
+			} else {
+				b.WriteString(selectedFileStyle.Render(fmt.Sprintf("▸ 📄 %s", item.name)))
+			}
+		} else {
+			if item.isDir {
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("📁 %s/", item.name)))
+			} else {
+				b.WriteString(normalItemStyle.Render(fmt.Sprintf("📄 %s", item.name)))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("  ↑↓ Gezin · enter Seç · esc Geri · q Menü"))
+	return b.String()
+}
+
+func (m interactiveModel) viewFileInfo() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	if m.infoResult == nil {
+		b.WriteString(errorStyle.Render("  Dosya bilgisi alınamadı."))
+		return b.String()
+	}
+
+	info := m.infoResult
+
+	b.WriteString(breadcrumbStyle.Render(fmt.Sprintf("  🔍 Dosya Bilgisi › %s", lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(info.FileName))))
+	b.WriteString("\n\n")
+
+	var lines []string
+
+	icon := categoryIcon(info.Category)
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(accentColor).Render(fmt.Sprintf("%s  %s", icon, info.FileName)))
+	lines = append(lines, dimStyle.Render("────────────────────────────────────────"))
+
+	labelW := 16
+	label := func(s string) string {
+		padded := s + ":"
+		for len(padded) < labelW {
+			padded += " "
+		}
+		return lipgloss.NewStyle().Foreground(secondaryColor).Render(padded)
+	}
+	val := func(s string) string {
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(s)
+	}
+
+	lines = append(lines, label("Format")+val(info.Format))
+	lines = append(lines, label("Kategori")+val(categoryLabel(info.Category)))
+	lines = append(lines, label("Boyut")+val(info.SizeText))
+
+	if info.Resolution != "" {
+		lines = append(lines, label("Çözünürlük")+val(info.Resolution))
+	}
+	if info.Duration != "" {
+		lines = append(lines, label("Süre")+val(info.Duration))
+	}
+	if info.VideoCodec != "" {
+		lines = append(lines, label("Video Codec")+val(info.VideoCodec))
+	}
+	if info.AudioCodec != "" {
+		lines = append(lines, label("Ses Codec")+val(info.AudioCodec))
+	}
+	if info.Bitrate != "" {
+		lines = append(lines, label("Bitrate")+val(info.Bitrate))
+	}
+	if info.FPS > 0 {
+		lines = append(lines, label("FPS")+val(fmt.Sprintf("%.2f", info.FPS)))
+	}
+	if info.Channels > 0 {
+		chLabel := fmt.Sprintf("%d", info.Channels)
+		if info.Channels == 1 {
+			chLabel = "Mono"
+		} else if info.Channels == 2 {
+			chLabel = "Stereo"
+		}
+		lines = append(lines, label("Kanal")+val(chLabel))
+	}
+	if info.SampleRate > 0 {
+		lines = append(lines, label("Örnekleme")+val(fmt.Sprintf("%d Hz", info.SampleRate)))
+	}
+
+	box := resultBoxStyle.Render(strings.Join(lines, "\n"))
+	b.WriteString(box)
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("  esc/q Ana menüye dön"))
 
 	return b.String()
 }
