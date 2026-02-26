@@ -126,16 +126,20 @@ var categories = []formatCategory{
 type mainMenuAction string
 
 const (
-	menuActionConvertSingle mainMenuAction = "convert-single"
-	menuActionConvertBatch  mainMenuAction = "convert-batch"
-	menuActionWatch         mainMenuAction = "watch"
-	menuActionVideoTrim     mainMenuAction = "video-trim"
-	menuActionResizeSingle  mainMenuAction = "resize-single"
-	menuActionResizeBatch   mainMenuAction = "resize-batch"
-	menuActionFormats       mainMenuAction = "formats"
-	menuActionDependencies  mainMenuAction = "dependencies"
-	menuActionSettings      mainMenuAction = "settings"
-	menuActionFileInfo      mainMenuAction = "file-info"
+	menuActionConvertSingle  mainMenuAction = "convert-single"
+	menuActionConvertBatch   mainMenuAction = "convert-batch"
+	menuActionWatch          mainMenuAction = "watch"
+	menuActionVideoTrim      mainMenuAction = "video-trim"
+	menuActionExtractAudio   mainMenuAction = "extract-audio"
+	menuActionSnapshot       mainMenuAction = "snapshot"
+	menuActionMerge          mainMenuAction = "merge"
+	menuActionResizeSingle   mainMenuAction = "resize-single"
+	menuActionResizeBatch    mainMenuAction = "resize-batch"
+	menuActionAudioNormalize mainMenuAction = "audio-normalize"
+	menuActionFormats        mainMenuAction = "formats"
+	menuActionDependencies   mainMenuAction = "dependencies"
+	menuActionSettings       mainMenuAction = "settings"
+	menuActionFileInfo       mainMenuAction = "file-info"
 )
 
 type mainMenuItem struct {
@@ -169,9 +173,12 @@ var topLevelSections = []mainMenuSection{
 		ID:    "video",
 		Label: "Video Araçları",
 		Icon:  "🎬",
-		Desc:  "Klip çıkarma ve aralık silme",
+		Desc:  "Düzenleme, ses çıkarma, kare yakalama ve birleştirme",
 		Items: []mainMenuItem{
 			{Label: "Video Düzenle (Klip/Sil)", Icon: "✂️", Desc: "Aralık seçerek klip çıkar veya videodan sil", Action: menuActionVideoTrim},
+			{Label: "Ses Çıkar (Extract Audio)", Icon: "🔊", Desc: "Videodan ses kanalını ayrı dosya olarak çıkar", Action: menuActionExtractAudio},
+			{Label: "Kare Yakala (Snapshot)", Icon: "📸", Desc: "Videonun belirli anından görsel kare çıkar", Action: menuActionSnapshot},
+			{Label: "Birleştir (Merge)", Icon: "🔗", Desc: "Birden fazla videoyu sıralı birleştir", Action: menuActionMerge},
 		},
 	},
 	{
@@ -182,6 +189,15 @@ var topLevelSections = []mainMenuSection{
 		Items: []mainMenuItem{
 			{Label: "Boyutlandır (Tek Dosya)", Icon: "🖼️", Desc: "Tek dosyada boyut ayarı yap", Action: menuActionResizeSingle},
 			{Label: "Toplu Boyutlandır", Icon: "🗂️", Desc: "Klasördeki dosyaları toplu boyutlandır", Action: menuActionResizeBatch},
+		},
+	},
+	{
+		ID:    "audio",
+		Label: "Ses Araçları",
+		Icon:  "🎵",
+		Desc:  "Ses normalize ve düzenleme",
+		Items: []mainMenuItem{
+			{Label: "Ses Normalize", Icon: "🔈", Desc: "Ses seviyesini EBU R128 standardına göre normalize et", Action: menuActionAudioNormalize},
 		},
 	},
 	{
@@ -269,6 +285,20 @@ const (
 	stateVideoTrimPreview
 	stateFileInfoBrowser
 	stateFileInfo
+	stateExtractAudioTarget
+	stateExtractAudioQuality
+	stateExtractAudioCopy
+	stateSnapshotTime
+	stateSnapshotTarget
+	stateSnapshotQuality
+	stateMergeBrowser
+	stateMergeTarget
+	stateMergeQuality
+	stateMergeReencode
+	stateAudioNormalizeTarget
+	stateAudioNormalizeLUFS
+	stateAudioNormalizeTP
+	stateAudioNormalizeLRA
 )
 
 // ========================================
@@ -290,10 +320,14 @@ type interactiveModel struct {
 	categoryIndices  []int
 
 	// Akış tipi
-	flowIsBatch    bool
-	flowResizeOnly bool
-	flowIsWatch    bool
-	flowVideoTrim  bool
+	flowIsBatch        bool
+	flowResizeOnly     bool
+	flowIsWatch        bool
+	flowVideoTrim      bool
+	flowExtractAudio   bool
+	flowSnapshot       bool
+	flowMerge          bool
+	flowAudioNormalize bool
 
 	// Dönüşüm bilgileri
 	sourceFormat string
@@ -406,6 +440,24 @@ type interactiveModel struct {
 	// Dosya bilgisi
 	infoFilePath string
 	infoResult   *converter.FileInfo
+
+	// Extract Audio
+	extractAudioQualityInput string
+	extractAudioCopyMode     bool
+
+	// Snapshot
+	snapshotTimeInput    string
+	snapshotQualityInput string
+
+	// Merge
+	mergeFiles        []string
+	mergeQualityInput string
+	mergeReencodeMode bool
+
+	// Audio Normalize
+	normalizeLUFSInput string
+	normalizeTPInput   string
+	normalizeLRAInput  string
 }
 
 type browserEntry struct {
@@ -760,7 +812,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.isResizeTextInputState() || m.isVideoTrimTextInputState() {
+		if m.isResizeTextInputState() || m.isVideoTrimTextInputState() || m.isSprint2TextInputState() {
 			switch msg.String() {
 			case "ctrl+c":
 				m.quitting = true
@@ -774,8 +826,10 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "backspace", "ctrl+h":
 				if m.isResizeTextInputState() {
 					m.popResizeInput()
-				} else {
+				} else if m.isVideoTrimTextInputState() {
 					m.popVideoTrimInput()
+				} else if m.isSprint2TextInputState() {
+					m.popSprint2Input()
 				}
 				return m, nil
 			default:
@@ -785,8 +839,38 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.isVideoTrimTextInputState() && m.appendVideoTrimInput(msg.String()) {
 					return m, nil
 				}
+				if m.isSprint2TextInputState() && m.appendSprint2Input(msg.String()) {
+					return m, nil
+				}
 				return m, nil
 			}
+		}
+
+		if m.state == stateMergeBrowser {
+			switch msg.String() {
+			case "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "q":
+				return m.goToMainMenu(), nil
+			case "enter":
+				return m.handleEnter()
+			case "esc":
+				return m.goBack(), nil
+			case "space":
+				m.toggleMergeFileSelection()
+				return m, nil
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				max := m.getMaxCursor()
+				if m.cursor < max {
+					m.cursor++
+				}
+			}
+			return m, nil
 		}
 		if m.state == stateVideoTrimTimeline {
 			switch msg.String() {
@@ -909,8 +993,8 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m interactiveModel) getMaxCursor() int {
 	switch m.state {
-	case stateFileBrowser, stateFileInfoBrowser:
-		return len(m.browserItems) - 1
+	case stateFileBrowser, stateFileInfoBrowser, stateMergeBrowser:
+		return len(m.browserItems)
 	case stateFormats:
 		return 0
 	case stateWelcomeIntro:
@@ -1038,6 +1122,34 @@ func (m interactiveModel) View() string {
 		return m.viewVideoTrimCodecSelect()
 	case stateVideoTrimPreview:
 		return m.viewVideoTrimPreview()
+	case stateExtractAudioTarget:
+		return m.viewExtractAudioTarget()
+	case stateExtractAudioQuality:
+		return m.viewExtractAudioQuality()
+	case stateExtractAudioCopy:
+		return m.viewExtractAudioCopy()
+	case stateSnapshotTime:
+		return m.viewSnapshotTime()
+	case stateSnapshotTarget:
+		return m.viewSnapshotTarget()
+	case stateSnapshotQuality:
+		return m.viewSnapshotQuality()
+	case stateMergeBrowser:
+		return m.viewMergeBrowser()
+	case stateMergeTarget:
+		return m.viewMergeTarget()
+	case stateMergeQuality:
+		return m.viewMergeQuality()
+	case stateMergeReencode:
+		return m.viewMergeReencode()
+	case stateAudioNormalizeTarget:
+		return m.viewAudioNormalizeTarget()
+	case stateAudioNormalizeLUFS:
+		return m.viewAudioNormalizeLUFS()
+	case stateAudioNormalizeTP:
+		return m.viewAudioNormalizeTP()
+	case stateAudioNormalizeLRA:
+		return m.viewAudioNormalizeLRA()
 	default:
 		return ""
 	}
@@ -1592,6 +1704,14 @@ func (m interactiveModel) runMainMenuAction(action mainMenuAction) (interactiveM
 		return m.goToCategorySelect(true, false, true), nil
 	case menuActionVideoTrim:
 		return m.goToVideoTrimBrowser(), nil
+	case menuActionExtractAudio:
+		return m.goToExtractAudioBrowser(), nil
+	case menuActionSnapshot:
+		return m.goToSnapshotBrowser(), nil
+	case menuActionMerge:
+		return m.goToMergeBrowser(), nil
+	case menuActionAudioNormalize:
+		return m.goToAudioNormalizeBrowser(), nil
 	case menuActionResizeSingle:
 		return m.goToCategorySelect(false, true, false), nil
 	case menuActionResizeBatch:
@@ -1601,6 +1721,10 @@ func (m interactiveModel) runMainMenuAction(action mainMenuAction) (interactiveM
 		m.flowResizeOnly = false
 		m.flowIsWatch = false
 		m.flowVideoTrim = false
+		m.flowExtractAudio = false
+		m.flowSnapshot = false
+		m.flowMerge = false
+		m.flowAudioNormalize = false
 		m.browserDir = m.defaultOutput
 		m.loadBrowserItems()
 		m.cursor = 0
@@ -1753,6 +1877,55 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 						"Seçtiğiniz aralığı yeni bir klip olarak üretir, orijinali korur",
 						"Seçtiğiniz aralığı videodan çıkarır ve kalan parçaları birleştirir",
 					}
+					return m, nil
+				}
+				if m.flowExtractAudio {
+					if depName, toolName := m.checkRequiredDep(); depName != "" {
+						m.missingDepName = depName
+						m.missingDepToolName = toolName
+						m.state = stateMissingDep
+						m.cursor = 0
+						return m, nil
+					}
+					m.extractAudioQualityInput = "0"
+					m.extractAudioCopyMode = false
+					m.state = stateExtractAudioTarget
+					m.cursor = 0
+					m.choices = []string{"MP3", "WAV", "AAC", "FLAC", "OGG", "M4A"}
+					m.choiceIcons = []string{"🎵", "🎵", "🎵", "🎵", "🎵", "🎵"}
+					m.choiceDescs = nil
+					return m, nil
+				}
+				if m.flowSnapshot {
+					if depName, toolName := m.checkRequiredDep(); depName != "" {
+						m.missingDepName = depName
+						m.missingDepToolName = toolName
+						m.state = stateMissingDep
+						m.cursor = 0
+						return m, nil
+					}
+					m.snapshotTimeInput = "00:00:01"
+					m.snapshotQualityInput = "0"
+					m.state = stateSnapshotTime
+					m.cursor = 0
+					return m, nil
+				}
+				if m.flowAudioNormalize {
+					if depName, toolName := m.checkRequiredDep(); depName != "" {
+						m.missingDepName = depName
+						m.missingDepToolName = toolName
+						m.state = stateMissingDep
+						m.cursor = 0
+						return m, nil
+					}
+					m.normalizeLUFSInput = "-14.0"
+					m.normalizeTPInput = "-1.0"
+					m.normalizeLRAInput = "11.0"
+					m.state = stateAudioNormalizeTarget
+					m.cursor = 0
+					m.choices = []string{"Ayni Format", "MP3", "WAV", "AAC", "FLAC"}
+					m.choiceIcons = []string{"🔄", "🎵", "🎵", "🎵", "🎵"}
+					m.choiceDescs = nil
 					return m, nil
 				}
 				// Bağımlılık kontrolü yap
@@ -2031,6 +2204,195 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		return m, nil
 
+	case stateExtractAudioTarget:
+		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
+		m.state = stateExtractAudioQuality
+		m.cursor = 0
+		m.choices = []string{"Orijinal (0)", "64", "96", "128", "192", "256", "320"}
+		m.choiceIcons = []string{"", "", "", "", "", "", ""}
+		m.choiceDescs = []string{
+			"Mevcut kaliteyi korur (varsayılan)",
+			"Düşük kalite, çok küçük boyut",
+			"Düşük kalite, küçük boyut",
+			"Standart MP3 kalitesi",
+			"Yüksek kalite",
+			"Çok yüksek kalite",
+			"Maksimum kalite",
+		}
+		return m, nil
+
+	case stateExtractAudioQuality:
+		m.extractAudioQualityInput = m.choices[m.cursor]
+		if m.extractAudioQualityInput == "Orijinal (0)" {
+			m.extractAudioQualityInput = "0"
+		}
+		m.state = stateExtractAudioCopy
+		m.cursor = 0
+		m.choices = []string{"Re-encode (Önerilen)", "Copy (Hızlı)"}
+		m.choiceIcons = []string{"🧠", "⚡"}
+		m.choiceDescs = []string{
+			"Yeni seçtiğiniz formata çevirir",
+			"Orijinal ses verisini dönüştürmeden kopyalar",
+		}
+		return m, nil
+
+	case stateExtractAudioCopy:
+		m.extractAudioCopyMode = (m.cursor == 1)
+		m.state = stateConverting
+		return m, m.doExtractAudio()
+
+	case stateSnapshotTime:
+		m.state = stateSnapshotTarget
+		m.cursor = 0
+		m.choices = []string{"JPG", "PNG", "WEBP"}
+		m.choiceIcons = []string{"🖼️", "🖼️", "🖼️"}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateSnapshotTarget:
+		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
+		m.state = stateSnapshotQuality
+		m.cursor = 0
+		m.choices = []string{"Otomatik (0)", "Düşük (25)", "Orta (50)", "Yüksek (75)", "Maksimum (100)"}
+		m.choiceIcons = []string{"", "", "", "", ""}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateSnapshotQuality:
+		switch m.cursor {
+		case 0:
+			m.snapshotQualityInput = "0"
+		case 1:
+			m.snapshotQualityInput = "25"
+		case 2:
+			m.snapshotQualityInput = "50"
+		case 3:
+			m.snapshotQualityInput = "75"
+		case 4:
+			m.snapshotQualityInput = "100"
+		}
+		m.state = stateConverting
+		return m, m.doSnapshot()
+
+	case stateMergeTarget:
+		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
+		m.state = stateMergeQuality
+		m.cursor = 0
+		m.choices = []string{"Otomatik (0)", "Düşük", "Orta", "Yüksek"}
+		m.choiceIcons = []string{"", "", "", ""}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateMergeQuality:
+		switch m.cursor {
+		case 0:
+			m.mergeQualityInput = "0"
+		case 1:
+			m.mergeQualityInput = "50"
+		case 2:
+			m.mergeQualityInput = "75"
+		case 3:
+			m.mergeQualityInput = "100"
+		}
+		m.state = stateMergeReencode
+		m.cursor = 0
+		m.choices = []string{"Otomatik (Önerilen)", "Re-encode Zorla"}
+		m.choiceIcons = []string{"🧠", "🎞️"}
+		m.choiceDescs = []string{
+			"Aynı codec'li videolar copy, farklı codec'liler re-encode edilir",
+			"Tüm videolar istisnasız yeniden encode edilir",
+		}
+		return m, nil
+
+	case stateMergeReencode:
+		m.mergeReencodeMode = (m.cursor == 1)
+		m.state = stateConverting
+		return m, m.doMerge()
+
+	case stateAudioNormalizeTarget:
+		m.targetFormat = converter.NormalizeFormat(m.choices[m.cursor])
+		m.state = stateAudioNormalizeLUFS
+		m.cursor = 0
+		m.choices = []string{"-14 LUFS (Spotify/YouTube)", "-16 LUFS (Podcast)", "-23 LUFS (TV)", "-9 LUFS (CD)"}
+		m.choiceIcons = []string{"🎧", "🎙️", "📺", "💿"}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateAudioNormalizeLUFS:
+		switch m.cursor {
+		case 0:
+			m.normalizeLUFSInput = "-14.0"
+		case 1:
+			m.normalizeLUFSInput = "-16.0"
+		case 2:
+			m.normalizeLUFSInput = "-23.0"
+		case 3:
+			m.normalizeLUFSInput = "-9.0"
+		}
+		m.state = stateAudioNormalizeTP
+		m.cursor = 0
+		m.choices = []string{"-1.0 dB (Standart)", "-2.0 dB (Güvenli)", "0.0 dB (MaksLimit)"}
+		m.choiceIcons = []string{"", "", ""}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateAudioNormalizeTP:
+		switch m.cursor {
+		case 0:
+			m.normalizeTPInput = "-1.0"
+		case 1:
+			m.normalizeTPInput = "-2.0"
+		case 2:
+			m.normalizeTPInput = "0.0"
+		}
+		m.state = stateAudioNormalizeLRA
+		m.cursor = 0
+		m.choices = []string{"11.0 (Standart Müzik/Video)", "7.0 (Podcast/Konuşma)", "15.0 (Sinematik/Klasik)"}
+		m.choiceIcons = []string{"", "", ""}
+		m.choiceDescs = nil
+		return m, nil
+
+	case stateAudioNormalizeLRA:
+		switch m.cursor {
+		case 0:
+			m.normalizeLRAInput = "11.0"
+		case 1:
+			m.normalizeLRAInput = "7.0"
+		case 2:
+			m.normalizeLRAInput = "15.0"
+		}
+		m.state = stateConverting
+		return m, m.doAudioNormalize()
+
+	case stateMergeBrowser:
+		if m.cursor < len(m.browserItems) {
+			item := m.browserItems[m.cursor]
+			if item.isDir {
+				m.browserDir = item.path
+				m.cursor = 0
+				m.loadBrowserItems()
+				return m, nil
+			}
+			// Clicking enter on file toggles selection as well
+			m.toggleMergeFileSelection()
+			return m, nil
+		}
+
+		if m.cursor == len(m.browserItems) {
+			if len(m.mergeFiles) < 2 {
+				m.trimValidationErr = "En az 2 video seçilmelidir"
+				return m, nil
+			}
+			m.trimValidationErr = ""
+			m.state = stateMergeTarget
+			m.cursor = 0
+			m.choices = []string{"Orijinal Formatı Koru", "MP4", "MOV", "MKV", "WEBM"}
+			m.choiceIcons = []string{"🔄", "🎞️", "🎞️", "🎞️", "🎞️"}
+			m.choiceDescs = nil
+			return m, nil
+		}
+		return m, nil
+
 	case stateBatchBrowser:
 		// Klasör listesinden sayı al
 		dirItems := []browserEntry{}
@@ -2129,6 +2491,10 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	m.flowResizeOnly = false
 	m.flowIsWatch = false
 	m.flowVideoTrim = false
+	m.flowExtractAudio = false
+	m.flowSnapshot = false
+	m.flowMerge = false
+	m.flowAudioNormalize = false
 	m.watcher = nil
 	m.watchProcessing = false
 	m.watchLastStatus = ""
@@ -2199,7 +2565,7 @@ func (m interactiveModel) goBack() interactiveModel {
 	case stateSelectTargetFormat:
 		return m.goToSourceFormatSelect(false)
 	case stateFileBrowser:
-		if m.flowVideoTrim {
+		if m.flowVideoTrim || m.flowExtractAudio || m.flowSnapshot || m.flowMerge || m.flowAudioNormalize {
 			return m.goToMainMenu()
 		}
 		if m.flowResizeOnly {
@@ -2274,7 +2640,102 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.state = stateVideoTrimCodec
 		m.cursor = 0
 		m.trimValidationErr = ""
+		m.choices = []string{"Auto (önerilen)", "Copy (hızlı)", "Re-encode (uyumlu)"}
+		m.choiceIcons = []string{"🧠", "⚡", "🎞️"}
+		if m.trimMode == trimModeRemove {
+			m.choiceDescs = []string{
+				"Hedef formata göre copy/reencode kararını otomatik verir",
+				"Aralık silme sonrası kalan parçaları hızlıca birleştirir",
+				"Aralık silme sonrası videoyu yeniden encode ederek daha uyumlu çıktı üretir",
+			}
+		} else {
+			m.choiceDescs = []string{
+				"Hedef formata göre copy/reencode kararını otomatik verir",
+				"Seçilen aralığı hızlıca klip olarak çıkarır, kaliteyi korur",
+				"Seçilen aralığı yeniden encode ederek daha uyumlu klip üretir",
+			}
+		}
 		return m
+
+	case stateExtractAudioTarget, stateSnapshotTime, stateAudioNormalizeTarget:
+		m.state = stateFileBrowser
+		m.cursor = 0
+		return m
+	case stateExtractAudioQuality:
+		m.state = stateExtractAudioTarget
+		m.cursor = 0
+		m.choices = []string{"MP3", "WAV", "AAC", "FLAC", "OGG", "M4A"}
+		m.choiceIcons = []string{"🎵", "🎵", "🎵", "🎵", "🎵", "🎵"}
+		m.choiceDescs = nil
+		return m
+	case stateExtractAudioCopy:
+		m.state = stateExtractAudioQuality
+		m.cursor = 0
+		m.choices = []string{"Orijinal (0)", "64", "96", "128", "192", "256", "320"}
+		m.choiceIcons = []string{"", "", "", "", "", "", ""}
+		m.choiceDescs = []string{
+			"Mevcut kaliteyi korur (varsayılan)",
+			"Düşük kalite, çok küçük boyut",
+			"Düşük kalite, küçük boyut",
+			"Standart MP3 kalitesi",
+			"Yüksek kalite",
+			"Çok yüksek kalite",
+			"Maksimum kalite",
+		}
+		return m
+	case stateSnapshotTarget:
+		m.state = stateSnapshotTime
+		m.cursor = 0
+		return m
+	case stateSnapshotQuality:
+		m.state = stateSnapshotTarget
+		m.cursor = 0
+		m.choices = []string{"JPG", "PNG", "WEBP"}
+		m.choiceIcons = []string{"🖼️", "🖼️", "🖼️"}
+		m.choiceDescs = nil
+		return m
+	case stateMergeBrowser:
+		return m.goToMainMenu()
+	case stateMergeTarget:
+		m.state = stateMergeBrowser
+		m.cursor = 0
+		return m
+	case stateMergeQuality:
+		m.state = stateMergeTarget
+		m.cursor = 0
+		m.choices = []string{"Orijinal Formati Koru", "MP4", "MOV", "MKV", "WEBM"}
+		m.choiceIcons = []string{"🔄", "🎞️", "🎞️", "🎞️", "🎞️"}
+		m.choiceDescs = nil
+		return m
+	case stateMergeReencode:
+		m.state = stateMergeQuality
+		m.cursor = 0
+		m.choices = []string{"Otomatik (0)", "Düşük", "Orta", "Yüksek"}
+		m.choiceIcons = []string{"", "", "", ""}
+		m.choiceDescs = nil
+		return m
+	case stateAudioNormalizeLUFS:
+		m.state = stateAudioNormalizeTarget
+		m.cursor = 0
+		m.choices = []string{"Ayni Format", "MP3", "WAV", "AAC", "FLAC"}
+		m.choiceIcons = []string{"🔄", "🎵", "🎵", "🎵", "🎵"}
+		m.choiceDescs = nil
+		return m
+	case stateAudioNormalizeTP:
+		m.state = stateAudioNormalizeLUFS
+		m.cursor = 0
+		m.choices = []string{"-14 LUFS (Spotify/YouTube)", "-16 LUFS (Podcast)", "-23 LUFS (TV)", "-9 LUFS (CD)"}
+		m.choiceIcons = []string{"🎧", "🎙️", "📺", "💿"}
+		m.choiceDescs = nil
+		return m
+	case stateAudioNormalizeLRA:
+		m.state = stateAudioNormalizeTP
+		m.cursor = 0
+		m.choices = []string{"-1.0 dB (Standart)", "-2.0 dB (Güvenli)", "0.0 dB (MaksLimit)"}
+		m.choiceIcons = []string{"", "", ""}
+		m.choiceDescs = nil
+		return m
+
 	case stateConvertDone, stateBatchDone, stateFormats, stateFileInfo:
 		return m.goToMainMenu()
 	case stateFileInfoBrowser:
@@ -2305,6 +2766,10 @@ func (m interactiveModel) goToCategorySelect(isBatch bool, resizeOnly bool, isWa
 	m.flowResizeOnly = resizeOnly
 	m.flowIsWatch = isWatch
 	m.flowVideoTrim = false
+	m.flowExtractAudio = false
+	m.flowSnapshot = false
+	m.flowMerge = false
+	m.flowAudioNormalize = false
 	m.trimEndInput = ""
 	m.trimRangeType = ""
 	m.trimMode = ""
@@ -2470,13 +2935,7 @@ func (m *interactiveModel) loadBrowserItems() {
 				path:  fullPath,
 				isDir: true,
 			})
-		} else if m.flowVideoTrim && isVideoTrimSourceFile(e.Name()) {
-			files = append(files, browserEntry{
-				name:  e.Name(),
-				path:  fullPath,
-				isDir: false,
-			})
-		} else if converter.HasFormatExtension(e.Name(), m.sourceFormat) {
+		} else if m.isAllowedFileBrowserItem(e.Name()) {
 			files = append(files, browserEntry{
 				name:  e.Name(),
 				path:  fullPath,
@@ -2488,6 +2947,25 @@ func (m *interactiveModel) loadBrowserItems() {
 	// Önce klasörler, sonra dosyalar
 	m.browserItems = append(m.browserItems, dirs...)
 	m.browserItems = append(m.browserItems, files...)
+}
+
+func (m interactiveModel) isAllowedFileBrowserItem(name string) bool {
+	if m.sourceFormat != "" {
+		return converter.HasFormatExtension(name, m.sourceFormat)
+	}
+	if m.flowVideoTrim {
+		return isVideoTrimSourceFile(name)
+	}
+	if m.flowExtractAudio || m.flowSnapshot || m.flowMerge || m.flowAudioNormalize {
+		cat := categories[m.selectedCategory]
+		for _, f := range cat.Formats {
+			if converter.HasFormatExtension(name, f) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func (m interactiveModel) doConvert() tea.Cmd {

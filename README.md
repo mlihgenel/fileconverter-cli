@@ -43,6 +43,7 @@ File Converter CLI, dosya dönüştürme işlemlerini internet servislerine yük
 
 ## Özellikler
 - Belge, görsel, ses ve video dönüşümleri.
+- Sabit görevlerde ses ve video manipülasyonu: videodan ses çıkarma (`extract-audio`), belirli anından kare yakalama (`snapshot`), videoları sıralı birleştirme (`merge`) ve ses dizeleme (`audio normalize`).
 - WebP encode desteği: tüm görsel formatlarından WebP'ye dönüşüm (pure Go, lossless VP8L).
 - Görsel optimizasyon: `--optimize` ile dosya boyutunu minimize etme, `--target-size 500kb` ile hedef boyuta yaklaşma.
 - Dosya bilgisi komutu: `info` ile format, çözünürlük, codec, süre, bitrate bilgisi (JSON çıktı desteği).
@@ -280,8 +281,29 @@ fileconverter-cli pipeline run ./pipeline.json --resume-from-report ./reports/pi
 | `steps[].target_tp` | `audio-normalize` için hayır | Hedef true peak |
 | `steps[].target_lra` | `audio-normalize` için hayır | Hedef loudness range |
 
-### Video düzenleme (trim)
+### Video ve Ses Araçları
 ```bash
+# Videodan ses kanalını MP3 olarak çıkar
+fileconverter-cli video extract-audio klip.mp4
+
+# Videodan ses kanalını re-encode etmeden (copy) orijinal formatıyla çıkar
+fileconverter-cli video extract-audio orijinal.mov --copy
+
+# Videonun 30. saniyesinden tek kare (snapshot) al
+fileconverter-cli video snapshot klip.mp4 --at 30 --to jpg
+
+# Videonun tam ortasından (%50) yüksek kalite snapshot al
+fileconverter-cli video snapshot klip.mp4 --at %50 --to png
+
+# Aynı codec'e sahip parçaları hızlıca birleştir (concat demuxer)
+fileconverter-cli video merge part1.mp4 part2.mp4 --name full_video
+
+# Farklı codec'lere sahip videoları re-encode ederek birleştir
+fileconverter-cli video merge iphone.mov web.webm --to mp4 --reencode --quality 80
+
+# Ses dosyasının ses seviyesini EBU R128 (LUFS) standardına göre normalize et
+fileconverter-cli audio normalize podcast.mp3 --target-lufs -16
+
 # 5. saniyeden başlayıp 10 saniyelik klip çıkar
 fileconverter-cli video trim input.mp4 --start 00:00:05 --duration 10
 
@@ -293,9 +315,6 @@ fileconverter-cli video trim input.mp4 --mode remove --ranges "00:00:05-00:00:08
 
 # Preview/plan: işlemden önce tam etkiyi gör (dosya yazmaz)
 fileconverter-cli video trim input.mp4 --mode remove --ranges "5-8,20-25" --dry-run
-
-# Belirli aralıktan klip çıkar ve yeniden encode et
-fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec reencode
 ```
 
 ## Komut Referansı
@@ -308,6 +327,10 @@ fileconverter-cli video trim input.mp4 --start 00:01:00 --end 00:01:30 --codec r
 | `fileconverter-cli watch <dizin>` | Klasörü izleyip otomatik dönüşüm yapar | `fileconverter-cli watch ./incoming --from webp --to jpg` |
 | `fileconverter-cli pipeline run <dosya>` | JSON pipeline akışını çalıştırır | `fileconverter-cli pipeline run ./pipeline.json` |
 | `fileconverter-cli video trim <dosya>` | `clip`: aralık çıkarır, `remove`: aralığı siler + birleştirir | `fileconverter-cli video trim input.mp4 --mode remove --start 00:00:23 --duration 2` |
+| `fileconverter-cli video extract-audio <dosya>` | Videodan ses kanalını çıkarır | `fileconverter-cli video extract-audio input.mp4 --to wav` |
+| `fileconverter-cli video snapshot <dosya>` | Videodan tek kare seçer | `fileconverter-cli video snapshot input.mp4 --at %50` |
+| `fileconverter-cli video merge <dosyalar...>` | Birden fazla videoyu birleştirir | `fileconverter-cli video merge part1.mp4 part2.mp4` |
+| `fileconverter-cli audio normalize <dosya>` | Ses seviyesini EBU R128'e göre dengeler | `fileconverter-cli audio normalize ses.mp3 --target-lufs -14` |
 | `fileconverter-cli resize-presets` | Hazır boyut presetlerini listeler | `fileconverter-cli resize-presets` |
 | `fileconverter-cli info <dosya>` | Dosya bilgisi gösterir (format, boyut, çözünürlük, codec) | `fileconverter-cli info foto.jpg` |
 | `fileconverter-cli formats` | Desteklenen dönüşümleri listeler | `fileconverter-cli formats --from pdf` |
