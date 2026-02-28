@@ -2473,6 +2473,9 @@ func (m interactiveModel) handleEnter() (tea.Model, tea.Cmd) {
 
 func (m interactiveModel) goToMainMenu() interactiveModel {
 	mainChoices, mainIcons, mainDescs := topLevelMenuChoices()
+	if m.watcher != nil {
+		_ = m.watcher.Close()
+	}
 	m.state = stateMainMenu
 	m.cursor = 0
 	m.mainSection = ""
@@ -2531,6 +2534,13 @@ func (m interactiveModel) goToMainMenu() interactiveModel {
 	return m
 }
 
+func (m interactiveModel) goToParentSection() interactiveModel {
+	if strings.TrimSpace(m.mainSection) != "" {
+		return m.goToMainSection(m.mainSection)
+	}
+	return m.goToMainMenu()
+}
+
 func (m interactiveModel) goToMainSection(sectionID string) interactiveModel {
 	section, ok := findTopLevelSection(sectionID)
 	if !ok {
@@ -2557,7 +2567,7 @@ func (m interactiveModel) goToMainSection(sectionID string) interactiveModel {
 func (m interactiveModel) goBack() interactiveModel {
 	switch m.state {
 	case stateSelectCategory:
-		return m.goToMainMenu()
+		return m.goToParentSection()
 	case stateMainSectionMenu:
 		return m.goToMainMenu()
 	case stateSelectSourceFormat:
@@ -2566,14 +2576,14 @@ func (m interactiveModel) goBack() interactiveModel {
 		return m.goToSourceFormatSelect(false)
 	case stateFileBrowser:
 		if m.flowVideoTrim || m.flowExtractAudio || m.flowSnapshot || m.flowMerge || m.flowAudioNormalize {
-			return m.goToMainMenu()
+			return m.goToParentSection()
 		}
 		if m.flowResizeOnly {
 			return m.goToResizeConfig(false)
 		}
 		return m.goToTargetFormatSelect(false)
 	case stateBatchSelectCategory:
-		return m.goToMainMenu()
+		return m.goToParentSection()
 	case stateBatchSelectSourceFormat:
 		return m.goToCategorySelect(true, m.flowResizeOnly, m.flowIsWatch)
 	case stateBatchSelectTargetFormat:
@@ -2695,7 +2705,7 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.choiceDescs = nil
 		return m
 	case stateMergeBrowser:
-		return m.goToMainMenu()
+		return m.goToParentSection()
 	case stateMergeTarget:
 		m.state = stateMergeBrowser
 		m.cursor = 0
@@ -2736,17 +2746,20 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.choiceDescs = nil
 		return m
 
-	case stateConvertDone, stateBatchDone, stateFormats, stateFileInfo:
+	case stateConvertDone, stateBatchDone:
 		return m.goToMainMenu()
 	case stateFileInfoBrowser:
-		return m.goToMainMenu()
-	case stateSettings:
-		return m.goToMainMenu()
+		return m.goToParentSection()
+	case stateFormats, stateFileInfo, stateDependencies, stateSettings:
+		return m.goToParentSection()
 	case stateSettingsBrowser:
 		m.state = stateSettings
 		m.cursor = 0
 		return m
 	case stateWatching:
+		if m.watcher != nil {
+			_ = m.watcher.Close()
+		}
 		m.state = stateBatchBrowser
 		m.cursor = 0
 		m.watchProcessing = false
@@ -2755,7 +2768,17 @@ func (m interactiveModel) goBack() interactiveModel {
 		m.watchLastError = ""
 		return m
 	case stateMissingDep:
-		return m.goToMainMenu()
+		if m.isBatchPending {
+			m.browserDir = m.defaultOutput
+			m.loadBrowserItems()
+			m.state = stateBatchBrowser
+			m.cursor = 0
+			return m
+		}
+		if m.pendingConvertCmd != nil || m.flowVideoTrim || m.flowExtractAudio || m.flowSnapshot || m.flowAudioNormalize {
+			return m.goToFileBrowser()
+		}
+		return m.goToParentSection()
 	default:
 		return m.goToMainMenu()
 	}
