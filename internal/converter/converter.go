@@ -153,6 +153,15 @@ func NormalizeFormat(format string) string {
 	return format
 }
 
+func IsHEIFFormat(format string) bool {
+	switch NormalizeFormat(format) {
+	case "heic", "heif":
+		return true
+	default:
+		return false
+	}
+}
+
 // DetectFormat dosya uzantısından format algılar
 func DetectFormat(filename string) string {
 	ext := NormalizeFormat(filepath.Ext(filename))
@@ -259,6 +268,19 @@ func detectFormatByMagic(header []byte) string {
 	}
 
 	if len(header) >= 12 && string(header[4:8]) == "ftyp" {
+		brandBlock := string(header)
+		switch {
+		case strings.Contains(brandBlock, "heic"),
+			strings.Contains(brandBlock, "heix"),
+			strings.Contains(brandBlock, "hevc"),
+			strings.Contains(brandBlock, "hevx"),
+			strings.Contains(brandBlock, "heim"),
+			strings.Contains(brandBlock, "heis"):
+			return "heic"
+		case strings.Contains(brandBlock, "heif"):
+			return "heif"
+		}
+
 		brand := string(header[8:12])
 		switch brand {
 		case "M4A ", "M4B ", "M4P ":

@@ -71,3 +71,24 @@ func TestDetectFormatDetectsDocxByZipContents(t *testing.T) {
 		t.Fatalf("expected docx, got %s", got)
 	}
 }
+
+func TestDetectFormatDetectsHEICByMagic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "photo.bin")
+	data := []byte{
+		0x00, 0x00, 0x00, 0x18,
+		'f', 't', 'y', 'p',
+		'h', 'e', 'i', 'c',
+		0x00, 0x00, 0x00, 0x00,
+		'm', 'i', 'f', '1',
+		'h', 'e', 'i', 'c',
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	got := DetectFormat(path)
+	if got != "heic" {
+		t.Fatalf("expected heic, got %s", got)
+	}
+}

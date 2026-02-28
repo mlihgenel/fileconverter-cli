@@ -119,7 +119,7 @@ type formatCategory struct {
 var categories = []formatCategory{
 	{Name: "Belgeler", Icon: "📄", Desc: "MD, HTML, PDF, DOCX, TXT, ODT, RTF, CSV", Formats: []string{"md", "html", "pdf", "docx", "txt", "odt", "rtf", "csv"}},
 	{Name: "Ses Dosyaları", Icon: "🎵", Desc: "MP3, WAV, OGG, FLAC, AAC, M4A, WMA, OPUS, WEBM", Formats: []string{"mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus", "webm"}},
-	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}},
+	{Name: "Görseller", Icon: "🖼️ ", Desc: "PNG, JPEG, WEBP, BMP, GIF, TIFF, ICO, HEIC, HEIF", Formats: []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico", "heic", "heif"}},
 	{Name: "Video Dosyaları", Icon: "🎬", Desc: "MP4, MOV, MKV, AVI, WEBM, M4V, WMV, FLV (GIF'e dönüştürme dahil)", Formats: []string{"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}},
 }
 
@@ -1633,7 +1633,7 @@ func (m interactiveModel) viewFormats() string {
 
 	docFormats := map[string]bool{"md": true, "html": true, "pdf": true, "docx": true, "txt": true, "odt": true, "rtf": true, "csv": true}
 	audioFormats := map[string]bool{"mp3": true, "wav": true, "ogg": true, "flac": true, "aac": true, "m4a": true, "wma": true, "opus": true, "webm": true}
-	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true, "ico": true}
+	imgFormats := map[string]bool{"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true, "tif": true, "ico": true, "heic": true, "heif": true}
 	videoFormats := map[string]bool{"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true, "m4v": true, "wmv": true, "flv": true, "gif": true}
 
 	ffmpegStatus := "Var"
@@ -3378,6 +3378,13 @@ func (m interactiveModel) checkRequiredDep() (string, string) {
 
 	// Video dönüşümü → FFmpeg
 	if cat.Name == "Video Dosyaları" {
+		if !converter.IsFFmpegAvailable() {
+			return "FFmpeg", "ffmpeg"
+		}
+	}
+
+	// HEIC/HEIF decode → FFmpeg
+	if cat.Name == "Görseller" && converter.IsHEIFFormat(m.sourceFormat) {
 		if !converter.IsFFmpegAvailable() {
 			return "FFmpeg", "ffmpeg"
 		}

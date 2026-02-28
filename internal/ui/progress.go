@@ -229,7 +229,7 @@ func PrintFormatCategory(format string) string {
 	}
 	imageFormats := map[string]bool{
 		"png": true, "jpg": true, "webp": true, "bmp": true, "gif": true,
-		"tif": true, "ico": true,
+		"tif": true, "ico": true, "heic": true, "heif": true,
 	}
 	videoFormats := map[string]bool{
 		"mp4": true, "mov": true, "mkv": true, "avi": true, "webm": true,

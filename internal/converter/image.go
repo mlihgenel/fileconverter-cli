@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/HugoSmits86/nativewebp"
@@ -33,7 +34,7 @@ func (ic *ImageConverter) Name() string {
 }
 
 // imageFormats desteklenen görsel formatları
-var imageFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}
+var imageFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico", "heic", "heif"}
 
 // imageWriteFormats yazılabilir formatlar
 var imageWriteFormats = []string{"png", "jpg", "webp", "bmp", "gif", "tif", "ico"}
@@ -245,6 +246,8 @@ func (ic *ImageConverter) decodeImage(path string, format string) (image.Image, 
 		img, err = webp.Decode(f)
 	case "ico":
 		img, err = decodeICO(f)
+	case "heic", "heif":
+		img, err = decodeHEIFViaFFmpeg(path)
 	default:
 		// Genel decoder dene
 		img, _, err = image.Decode(f)
@@ -252,6 +255,37 @@ func (ic *ImageConverter) decodeImage(path string, format string) (image.Image, 
 
 	if err != nil {
 		return nil, fmt.Errorf("görsel decode hatası (%s): %w", format, err)
+	}
+	return img, nil
+}
+
+func decodeHEIFViaFFmpeg(path string) (image.Image, error) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return nil, fmt.Errorf("heic/heif decode için ffmpeg gerekli")
+	}
+
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-i", path,
+		"-frames:v", "1",
+		"-f", "image2pipe",
+		"-vcodec", "png",
+		"-",
+	}
+	out, err := exec.Command(ffmpegPath, args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return nil, fmt.Errorf("heic/heif ffmpeg decode hatası: %w", err)
+		}
+		return nil, fmt.Errorf("heic/heif ffmpeg decode hatası: %s", msg)
+	}
+
+	img, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		return nil, fmt.Errorf("heic/heif png decode hatası: %w", err)
 	}
 	return img, nil
 }

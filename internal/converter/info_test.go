@@ -50,6 +50,8 @@ func TestCategorizeFormat(t *testing.T) {
 		{"png", "image"},
 		{"jpg", "image"},
 		{"webp", "image"},
+		{"heic", "image"},
+		{"heif", "image"},
 		{"mp4", "video"},
 		{"mov", "video"},
 		{"mp3", "audio"},
